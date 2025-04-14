@@ -9,12 +9,25 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from pytz import utc
 from datetime import timedelta
+import uuid
 
 app = Flask(__name__)
 app.secret_key = 'votre_clé_secrète_ici'  # À changer en production
 
 # Activer les extensions Jinja2
 app.jinja_env.add_extension('jinja2.ext.do')
+
+# Filtre Jinja pour formater les timestamps
+@app.template_filter('format_timestamp')
+def format_timestamp(timestamp):
+    """Convertit un timestamp ISO en format lisible"""
+    if not timestamp:
+        return ""
+    try:
+        dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        return dt.strftime('%d/%m/%Y %H:%M:%S')
+    except:
+        return timestamp
 
 # Configuration
 SCHEDULES_FILE = 'data/schedules.json'
@@ -93,13 +106,19 @@ def add_log(schedule_id, schedule_name, script_path, status, output=None):
     save_logs(logs)
     return log_entry
 
-def execute_script(script_path, env_path, schedule_id=None, schedule_name=None):
-    """
-    Fonction qui exécute un script Python et enregistre le résultat
-    """
+def execute_script(script_path, schedule_id=None, schedule_name=None, env_path=None):
+    """Exécute un script Python et enregistre le résultat"""
     try:
+        start_time = datetime.now()
+        
+        # Marquer le script comme en cours d'exécution
+        if schedule_id:
+            running_scripts[schedule_id] = start_time
+        
         # Si le chemin de script ou d'environnement Python n'existe pas, on utilise des valeurs par défaut
         if not os.path.exists(script_path):
+            if schedule_id and schedule_id in running_scripts:
+                del running_scripts[schedule_id]
             return add_log(
                 schedule_id=schedule_id,
                 schedule_name=schedule_name,
@@ -127,15 +146,25 @@ def execute_script(script_path, env_path, schedule_id=None, schedule_name=None):
             output = result.stderr
         
         # Ajouter un log
-        return add_log(
+        log_result = add_log(
             schedule_id=schedule_id,
             schedule_name=schedule_name,
             script_path=script_path,
             status=status,
             output=output
         )
+        
+        # Retirer le script de la liste des scripts en cours d'exécution
+        if schedule_id and schedule_id in running_scripts:
+            del running_scripts[schedule_id]
+            
+        return log_result
     
     except subprocess.TimeoutExpired:
+        # En cas de timeout, s'assurer que le script est marqué comme terminé
+        if schedule_id and schedule_id in running_scripts:
+            del running_scripts[schedule_id]
+            
         return add_log(
             schedule_id=schedule_id,
             schedule_name=schedule_name,
@@ -144,6 +173,10 @@ def execute_script(script_path, env_path, schedule_id=None, schedule_name=None):
             output='L\'exécution du script a dépassé le délai imparti.'
         )
     except Exception as e:
+        # En cas d'erreur, s'assurer que le script est marqué comme terminé
+        if schedule_id and schedule_id in running_scripts:
+            del running_scripts[schedule_id]
+            
         return add_log(
             schedule_id=schedule_id,
             schedule_name=schedule_name,
@@ -186,7 +219,7 @@ def update_scheduler():
             scheduler.add_job(
                 execute_script,
                 trigger=trigger,
-                args=[schedule['script_path'], schedule.get('env_path', sys.executable), schedule['id'], schedule['name']],
+                args=[schedule['script_path'], schedule['id'], schedule['name'], schedule.get('env_path', sys.executable)],
                 id=f"schedule_{schedule['id']}",
                 replace_existing=True
             )
@@ -196,7 +229,13 @@ def index():
     schedules = get_schedules()
     scripts = get_scripts()
     logs = get_logs()
-    return render_template('index.html', schedules=schedules, scripts=scripts, logs=logs)
+    
+    # Passer le statut d'exécution des scripts au template
+    return render_template('index.html', 
+                           schedules=schedules, 
+                           scripts=scripts, 
+                           logs=logs, 
+                           running_scripts=running_scripts)
 
 @app.route('/schedules', methods=['GET', 'POST'])
 def manage_schedules():
@@ -601,6 +640,16 @@ def clear_logs():
     flash('Logs effacés avec succès!', 'success')
     return redirect(url_for('index'))
 
+@app.route('/logs', methods=['GET'])
+def get_logs_api():
+    """API pour récupérer les journaux d'exécution"""
+    logs = get_logs()
+    # Convertir explicitement les IDs en chaînes pour garantir la cohérence
+    for log in logs:
+        if 'id' in log:
+            log['id'] = str(log['id'])
+    return jsonify(logs)
+
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
     # Simulez des paramètres pour l'instant
@@ -610,9 +659,11 @@ def settings():
 def browse_files_get():
     """API pour explorer les fichiers et dossiers du système via GET"""
     path = request.args.get('path', '')
+    file_type = request.args.get('type', '')  # 'script' ou 'python'
     
     try:
         items = []
+        parent_path = None
         
         # Si sur Windows, lister les lecteurs disponibles si nous sommes à la racine
         if os.name == 'nt' and (path == '/' or path == '\\' or path == ''):
@@ -625,33 +676,80 @@ def browse_files_get():
                     'path': drive,
                     'type': 'directory'
                 })
+            parent_path = None
         else:
-            # Sinon, lister les fichiers et dossiers dans le répertoire spécifié
-            if not os.path.exists(path):
-                return jsonify({'error': f'Directory {path} does not exist'}), 404
+            # Vérification et normalisation du chemin pour Windows
+            if os.name == 'nt':
+                # Remplacer les slashes avant en slashes arrière pour Windows
+                normalized_path = path.replace('/', '\\')
+                # S'assurer que le chemin a un backslash à la fin pour os.listdir
+                if not normalized_path.endswith('\\') and os.path.isdir(normalized_path):
+                    normalized_path += '\\'
+            else:
+                normalized_path = path
                 
-            for item in os.listdir(path):
-                full_path = os.path.join(path, item)
-                item_type = 'directory' if os.path.isdir(full_path) else 'file'
-                items.append({
-                    'name': item,
-                    'path': full_path.replace('\\', '/'),  # Normaliser les chemins pour le web
-                    'type': item_type
-                })
+            # Calculer le chemin parent
+            if normalized_path:
+                parent_dir = os.path.dirname(normalized_path)
+                parent_path = parent_dir if parent_dir != normalized_path else None
+                
+            # Vérifier si le chemin existe
+            if not os.path.exists(normalized_path):
+                return jsonify({
+                    'error': f'Le répertoire "{normalized_path}" n\'existe pas.',
+                    'items': [],
+                    'current_path': path,
+                    'parent_path': parent_path
+                }), 404
+                
+            # Lister les fichiers et dossiers
+            for item in os.listdir(normalized_path):
+                try:
+                    full_path = os.path.join(normalized_path, item)
+                    is_dir = os.path.isdir(full_path)
+                    
+                    # Pour le type 'script', n'afficher que les .py si ce n'est pas un dossier
+                    if file_type == 'script' and not is_dir and not item.endswith('.py'):
+                        continue
+                        
+                    # Pour le type 'python', afficher uniquement les dossiers et le python.exe
+                    if file_type == 'python' and not is_dir and not ('python' in item.lower()):
+                        continue
+                    
+                    # Normaliser le chemin pour le web (toujours utiliser les slashes avant)
+                    web_path = full_path.replace('\\', '/')
+                    
+                    items.append({
+                        'name': item,
+                        'path': web_path,
+                        'type': 'directory' if is_dir else 'file'
+                    })
+                except (PermissionError, FileNotFoundError) as e:
+                    # Ignorer les fichiers auxquels on n'a pas accès
+                    continue
         
         # Trier : dossiers d'abord, puis par nom
         items.sort(key=lambda x: (x['type'] != 'directory', x['name'].lower()))
         
         return jsonify({
-            'items': items
+            'items': items,
+            'current_path': path,
+            'parent_path': parent_path
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.error(f"Erreur lors de la navigation: {str(e)}")
+        return jsonify({
+            'error': f"Erreur lors du chargement du répertoire: {str(e)}",
+            'items': [],
+            'current_path': path,
+            'parent_path': None
+        }), 500
 
 @app.route('/browse_files', methods=['POST'])
 def browse_files():
     """API pour explorer les fichiers et dossiers du système via POST"""
-    directory = request.json.get('directory', '/')
+    data = request.get_json()
+    directory = data.get('path', '')
     
     try:
         items = []
@@ -668,27 +766,54 @@ def browse_files():
                     'type': 'directory'
                 })
         else:
-            # Sinon, lister les fichiers et dossiers dans le répertoire spécifié
-            if not os.path.exists(directory):
-                return jsonify({'error': f'Directory {directory} does not exist'}), 404
+            # Vérification et normalisation du chemin pour Windows
+            if os.name == 'nt':
+                # Remplacer les slashes avant en slashes arrière pour Windows
+                normalized_path = directory.replace('/', '\\')
+                # S'assurer que le chemin a un backslash à la fin pour os.listdir
+                if not normalized_path.endswith('\\') and os.path.isdir(normalized_path):
+                    normalized_path += '\\'
+            else:
+                normalized_path = directory
                 
-            for item in os.listdir(directory):
-                full_path = os.path.join(directory, item)
-                item_type = 'directory' if os.path.isdir(full_path) else 'file'
-                items.append({
-                    'name': item,
-                    'path': full_path.replace('\\', '/'),  # Normaliser les chemins pour le web
-                    'type': item_type
-                })
+            # Vérifier si le chemin existe
+            if not os.path.exists(normalized_path):
+                return jsonify({
+                    'error': f'Le répertoire "{normalized_path}" n\'existe pas.',
+                    'items': []
+                }), 404
+                
+            # Lister les fichiers et dossiers
+            for item in os.listdir(normalized_path):
+                try:
+                    full_path = os.path.join(normalized_path, item)
+                    is_dir = os.path.isdir(full_path)
+                    
+                    # Normaliser le chemin pour le web (toujours utiliser les slashes avant)
+                    web_path = full_path.replace('\\', '/')
+                    
+                    items.append({
+                        'name': item,
+                        'path': web_path,
+                        'type': 'directory' if is_dir else 'file'
+                    })
+                except (PermissionError, FileNotFoundError) as e:
+                    # Ignorer les fichiers auxquels on n'a pas accès
+                    continue
         
         # Trier : dossiers d'abord, puis par nom
         items.sort(key=lambda x: (x['type'] != 'directory', x['name'].lower()))
         
         return jsonify({
-            'items': items
+            'items': items,
+            'current_path': directory
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.error(f"Erreur lors de la navigation: {str(e)}")
+        return jsonify({
+            'error': f"Erreur lors du chargement du répertoire: {str(e)}",
+            'items': []
+        }), 500
 
 # Routes pour les paramètres avancés
 @app.route('/settings/cleanup_logs', methods=['POST'])
@@ -784,10 +909,16 @@ def check_updates():
         'message': "Votre application est à jour."
     })
 
+# Dictionnaire pour suivre les scripts en cours d'exécution
+running_scripts = {}
+
+# Initialisation du planificateur
 scheduler = BackgroundScheduler(timezone=utc)
 scheduler.start()
 
+# Mettre à jour le planificateur au démarrage
+update_scheduler()
+
+# Lancer l'application si ce fichier est exécuté directement
 if __name__ == '__main__':
-    # Initialiser le planificateur au démarrage de l'application
-    update_scheduler()
-    app.run(debug=True, use_reloader=False)  # Désactiver use_reloader pour éviter les problèmes avec APScheduler
+    app.run(debug=True)

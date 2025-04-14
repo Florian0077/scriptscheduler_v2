@@ -1,26 +1,223 @@
 document.addEventListener('DOMContentLoaded', function() {
-    // Gestion des onglets
-    const tabButtons = document.querySelectorAll('.tab-btn');
+    // Variables globales
+    let logsRefreshInterval = null;
+    const REFRESH_INTERVAL = 5000; // 5 secondes
+
+    // Gestion des onglets principaux
+    const navTabButtons = document.querySelectorAll('.tab-btn');
     const tabContents = document.querySelectorAll('.tab-content');
     
-    tabButtons.forEach(button => {
+    // Gestionnaire pour les onglets de navigation principaux
+    navTabButtons.forEach(button => {
         button.addEventListener('click', function() {
-            const tabId = this.getAttribute('data-tab');
-            
-            // Désactiver tous les onglets
-            tabButtons.forEach(btn => {
+            // Mettre à jour les classes des boutons
+            navTabButtons.forEach(btn => {
+                btn.classList.remove('active');
                 btn.classList.remove('text-indigo-600', 'border-b-2', 'border-indigo-600');
                 btn.classList.add('text-gray-500');
             });
             
+            this.classList.add('active');
+            this.classList.add('text-indigo-600', 'border-b-2', 'border-indigo-600');
+            this.classList.remove('text-gray-500');
+            
+            // Afficher le contenu de l'onglet
+            const targetId = this.getAttribute('data-tab');
             tabContents.forEach(content => {
                 content.classList.remove('active');
             });
+            document.getElementById(targetId).classList.add('active');
             
-            // Activer l'onglet sélectionné
-            this.classList.add('text-indigo-600', 'border-b-2', 'border-indigo-600');
-            this.classList.remove('text-gray-500');
-            document.getElementById(tabId).classList.add('active');
+            // Gérer le rafraîchissement des journaux si l'onglet logs est actif
+            if (targetId === 'logs') {
+                startLogsRefresh();
+            } else {
+                stopLogsRefresh();
+            }
+        });
+    });
+    
+    // Fonctions pour le rafraîchissement des journaux
+    function startLogsRefresh() {
+        // Rafraîchir immédiatement puis toutes les X secondes
+        refreshLogs();
+        logsRefreshInterval = setInterval(refreshLogs, REFRESH_INTERVAL);
+    }
+    
+    function stopLogsRefresh() {
+        if (logsRefreshInterval) {
+            clearInterval(logsRefreshInterval);
+            logsRefreshInterval = null;
+        }
+    }
+    
+    function refreshLogs() {
+        fetch('/logs')
+            .then(response => response.json())
+            .then(logs => {
+                updateLogsTable(logs);
+            })
+            .catch(error => console.error('Erreur lors du rafraîchissement des journaux:', error));
+    }
+    
+    function updateLogsTable(logs) {
+        const logsContainer = document.getElementById('logsContainer');
+        if (!logsContainer) return;
+        
+        // Trier les logs du plus récent au plus ancien
+        logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        
+        let html = '';
+        
+        if (logs.length === 0) {
+            html = `
+                <div class="p-6 text-center text-gray-500">
+                    <i class="fas fa-file-alt text-4xl mb-4"></i>
+                    <p>Aucun journal d'exécution</p>
+                    <p class="text-sm">Les journaux apparaîtront ici après l'exécution d'un script</p>
+                </div>
+            `;
+        } else {
+            html = `
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Script</th>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+                                <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+            `;
+            
+            logs.forEach(log => {
+                const date = new Date(log.timestamp);
+                const formattedDate = date.toLocaleString();
+                const statusClass = log.status === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+                const statusText = log.status === 'success' ? 'Succès' : 'Erreur';
+                
+                html += `
+                    <tr>
+                        <td class="px-3 py-4 whitespace-nowrap text-sm text-gray-500">${log.script_path}</td>
+                        <td class="px-3 py-4 whitespace-nowrap text-sm text-gray-500">${formattedDate}</td>
+                        <td class="px-3 py-4 whitespace-nowrap">
+                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}">
+                                ${statusText}
+                            </span>
+                        </td>
+                        <td class="px-3 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <button class="view-log-btn text-indigo-600 hover:text-indigo-900" data-log-id="${log.id}">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+        
+        logsContainer.innerHTML = html;
+        
+        // Réattacher les écouteurs d'événements pour les boutons de visualisation de logs
+        document.querySelectorAll('.view-log-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const logId = this.getAttribute('data-log-id');
+                console.log('Clic sur le log avec ID:', logId);
+                
+                // Conversion explicite des IDs en chaînes de caractères pour la comparaison
+                const log = logs.find(l => String(l.id) === String(logId));
+                
+                if (log) {
+                    console.log('Log trouvé:', log);
+                    showLogDetails(log);
+                } else {
+                    console.error('Log non trouvé avec ID:', logId);
+                    console.log('Logs disponibles:', logs);
+                }
+            });
+        });
+    }
+    
+    // Gestion de la modal des détails de logs
+    const logDetailsModal = document.getElementById('logDetailsModal');
+    const closeLogDetailsBtn = document.getElementById('closeLogDetailsBtn');
+    const closeLogDetailsX = document.getElementById('closeLogDetails');
+    
+    if (closeLogDetailsBtn) {
+        closeLogDetailsBtn.addEventListener('click', function() {
+            logDetailsModal.classList.add('hidden');
+        });
+    }
+    
+    if (closeLogDetailsX) {
+        closeLogDetailsX.addEventListener('click', function() {
+            logDetailsModal.classList.add('hidden');
+        });
+    }
+    
+    // Fonction pour afficher les détails d'un log
+    function showLogDetails(log) {
+        console.log('Affichage des détails du log:', log);
+        const modal = document.getElementById('logDetailsModal');
+        const scriptPath = document.getElementById('logScriptPath');
+        const timestamp = document.getElementById('logTimestamp');
+        const status = document.getElementById('logStatus');
+        const output = document.getElementById('logOutput');
+        
+        if (modal && scriptPath && timestamp && status && output) {
+            scriptPath.textContent = log.script_path;
+            timestamp.textContent = new Date(log.timestamp).toLocaleString();
+            
+            status.textContent = log.status === 'success' ? 'Succès' : 'Erreur';
+            status.className = log.status === 'success' ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold';
+            
+            output.textContent = log.output || 'Aucune sortie';
+            
+            // Afficher les erreurs s'il y en a
+            const errorContainer = document.getElementById('logErrorContainer');
+            if (errorContainer) {
+                if (log.error) {
+                    errorContainer.classList.remove('hidden');
+                    document.getElementById('logError').textContent = log.error;
+                } else {
+                    errorContainer.classList.add('hidden');
+                }
+            }
+            
+            modal.classList.remove('hidden');
+        }
+    }
+    
+    // Initialiser le rafraîchissement si l'onglet logs est actif au chargement
+    if (document.querySelector('.tab-btn[data-tab="logs"].active')) {
+        startLogsRefresh();
+    }
+
+    // Gestion des onglets secondaires
+    const secondaryTabButtons = document.querySelectorAll('.tab-button');
+    const secondaryTabContents = document.querySelectorAll('.tab-content');
+    
+    secondaryTabButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            // Mettre à jour les classes des boutons
+            secondaryTabButtons.forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+            
+            // Afficher l'onglet correspondant
+            const targetTab = button.getAttribute('data-tab');
+            secondaryTabContents.forEach(content => {
+                content.classList.remove('active');
+                if (content.id === targetTab) {
+                    content.classList.add('active');
+                }
+            });
         });
     });
     
@@ -340,7 +537,7 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         
         // Appeler l'API de navigation
-        fetch(`/browse?path=${encodeURIComponent(path)}&type=${type}`)
+        fetch(`/browse_files?path=${encodeURIComponent(path)}&type=${type}`)
             .then(response => {
                 if (!response.ok) {
                     throw new Error('Erreur réseau');
