@@ -380,14 +380,14 @@
 
                 <!-- Scripts Tab -->
                 <div id="scripts" class="tab-content">
-                    <div class="mb-4 flex justify-between items-center">
+                    <!-- <div class="mb-4 flex justify-between items-center">
                         <h2 class="text-xl font-semibold text-gray-800">
                             <i class="fas fa-file-code mr-2 text-indigo-500"></i>Scripts Python
                         </h2>
                         <button id="newScriptBtn" class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600">
                             <i class="fas fa-plus mr-1"></i>Nouveau
                         </button>
-                    </div>
+                    </div> -->
 
                     <!-- Scripts planifiés -->
                     <div class="mb-6">
@@ -456,6 +456,29 @@
             </div>
         </div>
     </div>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-white mt-10">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="mb-4 md:mb-0">
+                    <h2 class="text-xl font-bold">Script Scheduler</h2>
+                    <p class="text-gray-400 text-sm">Une application pour planifier l'exécution automatique de scripts Python</p>
+                </div>
+                <div class="flex flex-col md:flex-row md:items-center">
+                    <a href="https://github.com/Florian0077/scriptscheduler_v2" target="_blank" class="text-gray-400 hover:text-white mr-4 mb-2 md:mb-0">
+                        <i class="fab fa-github mr-1"></i>GitHub
+                    </a>
+                    <a href="/settings" class="text-gray-400 hover:text-white mr-4 mb-2 md:mb-0">
+                        <i class="fas fa-cog mr-1"></i>Paramètres
+                    </a>
+                    <span class="text-gray-500 text-sm">
+                        <i class="far fa-copyright mr-1"></i>2025 Script Scheduler
+                    </span>
+                </div>
+            </div>
+        </div>
+    </footer>
 
     <!-- Script Editor Modal -->
     <div id="scriptEditorModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
