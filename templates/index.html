@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Python Script Scheduler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="fixed top-4 right-4 z-50">
+                {% for category, message in messages %}
+                    <div class="flash-message bg-{{ 'green' if category == 'success' else 'red' }}-100 border-l-4 border-{{ 'green' if category == 'success' else 'red' }}-500 text-{{ 'green' if category == 'success' else 'red' }}-700 p-4 mb-2 rounded shadow-md">
+                        <div class="flex">
+                            <div class="py-1">
+                                <i class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-circle' }} mr-2"></i>
+                            </div>
+                            <div>
+                                <p>{{ message }}</p>
+                            </div>
+                            <button class="ml-auto" onclick="this.parentElement.parentElement.remove()">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <div class="container mx-auto px-4 py-8">
+        <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+            <!-- Header -->
+            <div class="bg-indigo-600 px-6 py-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <img src="{{ url_for('static', filename='image/logo.jpeg') }}" alt="Logo" class="h-12 w-auto mr-3 rounded">
+                        <h1 class="text-2xl font-bold text-white">
+                            <i class="fas fa-code mr-2"></i> Python Script Scheduler
+                        </h1>
+                    </div>
+                    <div class="flex space-x-2">
+                        <a href="{{ url_for('settings') }}" class="text-white hover:text-indigo-200">
+                            <i class="fas fa-cog"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="p-6">
+                <!-- Tabs -->
+                <div class="flex border-b border-gray-200 mb-6">
+                    <button class="tab-btn py-2 px-4 font-medium text-indigo-600 border-b-2 border-indigo-600" data-tab="scheduler">
+                        <i class="fas fa-clock mr-2"></i>Planificateur
+                    </button>
+                    <button class="tab-btn py-2 px-4 font-medium text-gray-500 hover:text-indigo-500" data-tab="logs">
+                        <i class="fas fa-scroll mr-2"></i>Journaux d'exécution
+                    </button>
+                    <button class="tab-btn py-2 px-4 font-medium text-gray-500 hover:text-indigo-500" data-tab="scripts">
+                        <i class="fas fa-file-code mr-2"></i>Scripts
+                    </button>
+                </div>
+
+                <!-- Scheduler Tab -->
+                <div id="scheduler" class="tab-content active">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Schedule Form -->
+                        <div class="bg-gray-50 p-6 rounded-lg border border-gray-200">
+                            <h2 class="text-xl font-semibold mb-4 text-gray-800">
+                                <i class="fas fa-plus-circle mr-2 text-indigo-500"></i>Nouvelle planification
+                            </h2>
+                            <form id="scheduleForm" action="{{ url_for('manage_schedules') }}" method="POST">
+                                <div class="mb-4">
+                                    <label class="block text-gray-700 font-medium mb-2" for="scheduleName">
+                                        Nom de la planification
+                                    </label>
+                                    <input type="text" id="scheduleName" name="scheduleName" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Nom de la planification" required>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <label class="block text-gray-700 font-medium mb-2" for="scriptPath">
+                                        Chemin du script
+                                    </label>
+                                    <div class="flex">
+                                        <input type="text" id="scriptPath" name="scriptPath" class="flex-grow px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="/path/to/script.py" required>
+                                        <button type="button" id="browseBtn" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-r-md hover:bg-gray-300">
+                                            <i class="fas fa-folder-open"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="block text-gray-700 font-medium mb-2" for="envPath">
+                                        Environnement Python
+                                    </label>
+                                    <div class="flex">
+                                        <input type="text" id="envPath" name="envPath" class="flex-grow px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="/path/to/python" value="{{ sys_executable }}" required>
+                                        <button type="button" id="envBrowseBtn" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-r-md hover:bg-gray-300">
+                                            <i class="fas fa-folder-open"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="block text-gray-700 font-medium mb-2">
+                                        Fréquence d'exécution
+                                    </label>
+                                    <div class="flex mb-4">
+                                        <div class="mr-4">
+                                            <input type="radio" id="simpleFrequencyType" name="frequencyType" value="simple" class="mr-2" checked>
+                                            <label for="simpleFrequencyType">Simple</label>
+                                        </div>
+                                        <div>
+                                            <input type="radio" id="cronFrequencyType" name="frequencyType" value="cron" class="mr-2">
+                                            <label for="cronFrequencyType">Cron</label>
+                                        </div>
+                                    </div>
+
+                                    <!-- Simple Frequency -->
+                                    <div id="simpleFrequencyOptions" class="space-y-2">
+                                        <div class="flex items-center mb-2">
+                                            <input type="radio" id="everyMinutes" name="simpleFrequency" value="everyMinutes" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
+                                            <label for="everyMinutes" class="ml-2 block text-sm text-gray-700">Toutes les X minutes</label>
+                                            <div id="everyMinutesOptions" class="ml-6 hidden">
+                                                <label class="text-sm text-gray-600">Toutes les</label>
+                                                <select name="everyMinutesValue" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                                    {% for i in range(1, 60) %}
+                                                        <option value="{{ i }}">{{ i }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                                <label class="text-sm text-gray-600 ml-2">minutes</label>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="flex items-center mb-2">
+                                            <input type="radio" id="hourly" name="simpleFrequency" value="hourly" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500" checked>
+                                            <label for="hourly" class="ml-2 block text-sm text-gray-700">Horaire</label>
+                                            <div id="hourlyOptions" class="ml-6">
+                                                <label class="text-sm text-gray-600">À la minute</label>
+                                                <select name="hourlyMinute" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                                    {% for i in range(0, 60) %}
+                                                        <option value="{{ i }}">{{ i }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="flex items-center mb-2">
+                                            <input type="radio" id="daily" name="simpleFrequency" value="daily" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
+                                            <label for="daily" class="ml-2 block text-sm text-gray-700">Quotidien</label>
+                                            <div id="dailyOptions" class="ml-6 hidden">
+                                                <label class="text-sm text-gray-600">À</label>
+                                                <select name="dailyHour" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                                    {% for i in range(0, 24) %}
+                                                        <option value="{{ i }}">{{ i }}:00</option>
+                                                    {% endfor %}
+                                                </select>
+                                                <label class="text-sm text-gray-600 ml-2">:</label>
+                                                <select name="dailyMinute" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                                    {% for i in range(0, 60) %}
+                                                        <option value="{{ i }}">{{ i }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="flex items-center mb-2">
+                                            <input type="radio" id="weekly" name="simpleFrequency" value="weekly" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
+                                            <label for="weekly" class="ml-2 block text-sm text-gray-700">Hebdomadaire</label>
+                                            <div id="weeklyOptions" class="ml-6 hidden">
+                                                <label class="text-sm text-gray-600">Le</label>
+                                                <select name="weeklyDay" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                                    <option value="1">Lundi</option>
+                                                    <option value="2">Mardi</option>
+                                                    <option value="3">Mercredi</option>
+                                                    <option value="4">Jeudi</option>
+                                                    <option value="5">Vendredi</option>
+                                                    <option value="6">Samedi</option>
+                                                    <option value="0">Dimanche</option>
+                                                </select>
+                                                <label class="text-sm text-gray-600 ml-2">à</label>
+                                                <select name="weeklyHour" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                                    {% for i in range(0, 24) %}
+                                                        <option value="{{ i }}">{{ i }}:00</option>
+                                                    {% endfor %}
+                                                </select>
+                                                <label class="text-sm text-gray-600 ml-2">:</label>
+                                                <select name="weeklyMinute" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                                    {% for i in range(0, 60) %}
+                                                        <option value="{{ i }}">{{ i }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="flex items-center">
+                                            <input type="radio" id="monthly" name="simpleFrequency" value="monthly" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
+                                            <label for="monthly" class="ml-2 block text-sm text-gray-700">Mensuel</label>
+                                            <div id="monthlyOptions" class="ml-6 hidden">
+                                                <label class="text-sm text-gray-600">Le</label>
+                                                <select name="monthlyDay" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                                    {% for i in range(1, 32) %}
+                                                        <option value="{{ i }}">{{ i }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                                <label class="text-sm text-gray-600 ml-2">à</label>
+                                                <select name="monthlyHour" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                                    {% for i in range(0, 24) %}
+                                                        <option value="{{ i }}">{{ i }}:00</option>
+                                                    {% endfor %}
+                                                </select>
+                                                <label class="text-sm text-gray-600 ml-2">:</label>
+                                                <select name="monthlyMinute" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                                    {% for i in range(0, 60) %}
+                                                        <option value="{{ i }}">{{ i }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Cron Frequency -->
+                                    <div id="cronFrequencyOptions" class="hidden mt-4">
+                                        <div class="cron-input mb-2">
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">Minute</label>
+                                                <input type="text" name="minute" class="cron-field w-full px-2 py-1 border border-gray-300 rounded" placeholder="*" data-field="minute">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">Heure</label>
+                                                <input type="text" name="hour" class="cron-field w-full px-2 py-1 border border-gray-300 rounded" placeholder="*" data-field="hour">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">Jour</label>
+                                                <input type="text" name="day" class="cron-field w-full px-2 py-1 border border-gray-300 rounded" placeholder="*" data-field="day">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">Mois</label>
+                                                <input type="text" name="month" class="cron-field w-full px-2 py-1 border border-gray-300 rounded" placeholder="*" data-field="month">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">Jour de semaine</label>
+                                                <input type="text" name="weekday" class="cron-field w-full px-2 py-1 border border-gray-300 rounded" placeholder="*" data-field="weekday">
+                                            </div>
+                                        </div>
+                                        <div class="text-xs text-gray-500 mb-4">
+                                            Expression cron: <span id="cronExpression">* * * * *</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="flex justify-end">
+                                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                        <i class="fas fa-save mr-2"></i>Enregistrer
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Active Schedules -->
+                        <div>
+                            <h2 class="text-xl font-semibold mb-4 text-gray-800">
+                                <i class="fas fa-calendar-check mr-2 text-indigo-500"></i>Planifications actives
+                            </h2>
+                            <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                                {% if schedules %}
+                                    <table class="min-w-full divide-y divide-gray-200">
+                                        <thead class="bg-gray-50">
+                                            <tr>
+                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nom</th>
+                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Script</th>
+                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Planification</th>
+                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">État</th>
+                                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="bg-white divide-y divide-gray-200">
+                                            {% for schedule in schedules %}
+                                                <tr>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ schedule.name }}</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ schedule.script_path }}</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ schedule.schedule }}</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {{ 'bg-green-100 text-green-800' if schedule.enabled else 'bg-gray-100 text-gray-800' }}">
+                                                            {{ 'Actif' if schedule.enabled else 'Inactif' }}
+                                                        </span>
+                                                    </td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                        <form action="{{ url_for('toggle_schedule', schedule_id=schedule.id) }}" method="POST" class="inline">
+                                                            <button type="submit" class="text-indigo-600 hover:text-indigo-900 mr-2">
+                                                                <i class="fas {{ 'fa-pause' if schedule.enabled else 'fa-play' }}"></i>
+                                                            </button>
+                                                        </form>
+                                                        <form action="{{ url_for('delete_schedule', schedule_id=schedule.id) }}" method="POST" class="inline" onsubmit="return confirm('Êtes-vous sûr de vouloir supprimer cette planification?')">
+                                                            <button type="submit" class="text-red-600 hover:text-red-900">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        </form>
+                                                    </td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                {% else %}
+                                    <div class="p-6 text-center text-gray-500">
+                                        <i class="fas fa-calendar-times text-4xl mb-4"></i>
+                                        <p>Aucune planification configurée</p>
+                                        <p class="text-sm">Utilisez le formulaire ci-contre pour ajouter une nouvelle planification</p>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Logs Tab -->
+                <div id="logs" class="tab-content">
+                    <div class="mb-4 flex justify-between items-center">
+                        <h2 class="text-xl font-semibold text-gray-800">
+                            <i class="fas fa-scroll mr-2 text-indigo-500"></i>Journaux d'exécution
+                        </h2>
+                        <form action="{{ url_for('clear_logs') }}" method="POST" onsubmit="return confirm('Êtes-vous sûr de vouloir effacer tous les journaux?')">
+                            <button type="submit" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600">
+                                <i class="fas fa-trash-alt mr-1"></i>Effacer
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                        {% if logs %}
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Planification</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Script</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Statut</th>
+                                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    {% for log in logs|sort(attribute='timestamp', reverse=true) %}
+                                        <tr class="log-entry">
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ log.timestamp|replace('T', ' ')|replace('Z', '') }}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ log.schedule_name }}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ log.script_path }}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                                    {{ 'bg-green-100 text-green-800' if log.status == 'success' else 
+                                                       'bg-red-100 text-red-800' if log.status == 'error' else 
+                                                       'bg-yellow-100 text-yellow-800' }}">
+                                                    {{ 'Succès' if log.status == 'success' else 
+                                                       'Erreur' if log.status == 'error' else 
+                                                       'Timeout' }}
+                                                </span>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                <button type="button" class="text-indigo-600 hover:text-indigo-900 view-log-output" data-log-id="{{ log.id }}" data-output="{{ log.output }}">
+                                                    <i class="fas fa-eye"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        {% else %}
+                            <div class="p-6 text-center text-gray-500">
+                                <i class="fas fa-scroll text-4xl mb-4"></i>
+                                <p>Aucun journal d'exécution</p>
+                                <p class="text-sm">Les journaux apparaîtront ici après l'exécution de scripts</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Scripts Tab -->
+                <div id="scripts" class="tab-content">
+                    <div class="mb-4 flex justify-between items-center">
+                        <h2 class="text-xl font-semibold text-gray-800">
+                            <i class="fas fa-file-code mr-2 text-indigo-500"></i>Scripts Python
+                        </h2>
+                        <button id="newScriptBtn" class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600">
+                            <i class="fas fa-plus mr-1"></i>Nouveau
+                        </button>
+                    </div>
+
+                    <!-- Scripts planifiés -->
+                    <div class="mb-6">
+                        <h3 class="text-lg font-medium text-gray-700 mb-4">
+                            <i class="fas fa-calendar-check mr-2 text-indigo-400"></i>Planifications
+                            <small class="text-xs text-gray-500">(Planifications: {{ schedules|length }})</small>
+                        </h3>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {% if schedules|length > 0 %}
+                                {% for schedule in schedules %}
+                                    <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow duration-300">
+                                        <div class="bg-indigo-50 px-4 py-3 border-b border-gray-200">
+                                            <div class="flex justify-between items-center">
+                                                <h4 class="text-md font-medium text-indigo-700 truncate">
+                                                    <i class="fas fa-file-code mr-2"></i>{{ schedule.name }}
+                                                </h4>
+                                                <span class="px-2 py-1 text-xs font-medium rounded-full {{ 'bg-green-100 text-green-800' if schedule.enabled else 'bg-gray-100 text-gray-800' }}">
+                                                    {{ 'Actif' if schedule.enabled else 'Inactif' }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="p-4">
+                                            <div class="mb-3">
+                                                <p class="text-sm text-gray-600 flex items-center mb-1">
+                                                    <i class="fas fa-calendar mr-2 text-gray-400"></i>Planification:
+                                                </p>
+                                                <ul class="text-xs text-gray-500 ml-6 space-y-1">
+                                                    <li class="flex justify-between items-center">
+                                                        <span>{{ schedule.name }}: <code>{{ schedule.schedule }}</code></span>
+                                                        <div>
+                                                            <form action="{{ url_for('toggle_schedule', schedule_id=schedule.id) }}" method="POST" class="inline">
+                                                                <button type="submit" class="text-indigo-600 hover:text-indigo-900 mr-1">
+                                                                    <i class="fas {{ 'fa-pause' if schedule.enabled else 'fa-play' }}"></i>
+                                                                </button>
+                                                            </form>
+                                                            <button type="button" class="text-indigo-600 hover:text-indigo-900 edit-schedule mr-1" data-schedule-id="{{ schedule.id }}">
+                                                                <i class="fas fa-edit"></i>
+                                                            </button>
+                                                            <button type="button" class="text-green-600 hover:text-green-900 mr-1 run-schedule" data-schedule-id="{{ schedule.id }}">
+                                                                <i class="fas fa-play-circle"></i>
+                                                            </button>
+                                                            <form action="{{ url_for('delete_schedule', schedule_id=schedule.id) }}" method="POST" class="inline" onsubmit="return confirm('Êtes-vous sûr de vouloir supprimer cette planification?')">
+                                                                <button type="submit" class="text-red-600 hover:text-red-900">
+                                                                    <i class="fas fa-trash"></i>
+                                                                </button>
+                                                            </form>
+                                                        </div>
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            {% else %}
+                                <div id="no-scripts-message" class="col-span-full text-center text-gray-500 py-8 bg-gray-50 rounded-lg border border-gray-200">
+                                    <i class="fas fa-calendar-times text-4xl mb-4"></i>
+                                    <p>Aucune planification configurée</p>
+                                    <p class="text-sm">Utilisez le formulaire ci-contre pour ajouter une nouvelle planification</p>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Editor Modal -->
+    <div id="scriptEditorModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg w-full max-w-3xl mx-4">
+            <div class="bg-indigo-600 px-6 py-4 rounded-t-lg">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-xl font-bold text-white" id="scriptEditorTitle">Nouveau Script</h3>
+                    <button type="button" class="text-white hover:text-indigo-200" id="closeScriptEditor">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="p-6">
+                <form id="scriptForm" action="{{ url_for('manage_scripts') }}" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" id="scriptIdInput" name="scriptId">
+                    <div class="mb-4">
+                        <label class="block text-gray-700 font-medium mb-2" for="scriptName">
+                            Nom du script
+                        </label>
+                        <input type="text" id="scriptName" name="scriptName" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Nom du script" required>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-gray-700 font-medium mb-2" for="scriptFile">
+                            Fichier (optionnel)
+                        </label>
+                        <input type="file" id="scriptFile" name="scriptFile" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500" accept=".py">
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-gray-700 font-medium mb-2" for="editorScriptPath">
+                            Chemin du script
+                        </label>
+                        <div class="flex">
+                            <input type="text" id="editorScriptPath" name="scriptPath" class="flex-grow px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="/path/to/script.py">
+                            <button type="button" id="editorScriptBrowseBtn" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-r-md hover:bg-gray-300">
+                                <i class="fas fa-folder-open"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-gray-700 font-medium mb-2" for="envPath">
+                            Environnement Python
+                        </label>
+                        <div class="flex">
+                            <input type="text" id="editorEnvPath" name="envPath" class="flex-grow px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="/path/to/python" value="{{ sys_executable }}">
+                            <button type="button" id="editorEnvBrowseBtn" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-r-md hover:bg-gray-300">
+                                <i class="fas fa-folder-open"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-gray-700 font-medium mb-2" for="scriptContent">
+                            Contenu du script
+                        </label>
+                        <textarea id="scriptContent" name="scriptContent" rows="15" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono terminal" placeholder="# Votre code Python ici"></textarea>
+                    </div>
+                    
+                    <div class="flex justify-end">
+                        <button type="button" class="px-4 py-2 bg-gray-300 text-gray-700 rounded mr-2 hover:bg-gray-400" id="cancelScriptEdit">
+                            Annuler
+                        </button>
+                        <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">
+                            Enregistrer
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Output Modal -->
+    <div id="scriptOutputModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg w-full max-w-3xl mx-4">
+            <div class="bg-indigo-600 px-6 py-4 rounded-t-lg">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-xl font-bold text-white">Résultat d'exécution</h3>
+                    <button type="button" class="text-white hover:text-indigo-200" id="closeScriptOutput">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="p-6">
+                <div id="scriptOutputContainer" class="terminal p-4 rounded text-sm whitespace-pre-wrap h-64 overflow-auto"></div>
+                <div class="mt-4 flex justify-end">
+                    <button type="button" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700" id="closeOutputBtn">
+                        Fermer
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Log Output Modal -->
+    <div id="logOutputModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg w-full max-w-3xl mx-4">
+            <div class="bg-indigo-600 px-6 py-4 rounded-t-lg">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-xl font-bold text-white">Détails du journal</h3>
+                    <button type="button" class="text-white hover:text-indigo-200" id="closeLogOutput">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="p-6">
+                <div id="logOutputContainer" class="terminal p-4 rounded text-sm whitespace-pre-wrap h-64 overflow-auto"></div>
+                <div class="mt-4 flex justify-end">
+                    <button type="button" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700" id="closeLogOutputBtn">
+                        Fermer
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Browser Modal -->
+    <div id="fileBrowserModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg w-full max-w-3xl mx-4">
+            <div class="bg-indigo-600 px-6 py-4 rounded-t-lg">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-xl font-bold text-white" id="fileBrowserTitle">Sélectionner un fichier</h3>
+                    <button type="button" class="text-white hover:text-indigo-200" id="closeFileBrowser">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="p-6">
+                <div class="mb-4">
+                    <div class="flex items-center mb-2">
+                        <input type="text" id="currentPath" class="flex-grow px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500" readonly>
+                    </div>
+                    <div class="flex justify-between">
+                        <button type="button" id="parentDirBtn" class="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+                            <i class="fas fa-arrow-up mr-1"></i>Dossier parent
+                        </button>
+                        <div>
+                            <button type="button" id="homeBtn" class="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 mr-2">
+                                <i class="fas fa-home mr-1"></i>Accueil
+                            </button>
+                            <button type="button" id="refreshDirBtn" class="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+                                <i class="fas fa-sync-alt mr-1"></i>Actualiser
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="fileList" class="border border-gray-200 rounded h-64 overflow-auto p-2">
+                    <div class="text-center py-8 text-gray-500">
+                        <i class="fas fa-spinner fa-spin text-3xl mb-2"></i>
+                        <p>Chargement...</p>
+                    </div>
+                </div>
+                
+                <div class="mt-4 flex justify-end">
+                    <button type="button" class="px-4 py-2 bg-gray-300 text-gray-700 rounded mr-2 hover:bg-gray-400" id="cancelFileBrowse">
+                        Annuler
+                    </button>
+                    <button type="button" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700" id="selectFileBtn">
+                        Sélectionner
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Schedule Editor Modal -->
+    <div id="scheduleEditorModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg w-full max-w-3xl mx-4">
+            <div class="bg-indigo-600 px-6 py-4 rounded-t-lg">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-xl font-bold text-white">Modifier la planification</h3>
+                    <button type="button" class="text-white hover:text-indigo-200" id="closeScheduleEditor">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="p-6">
+                <form id="editScheduleForm" action="{{ url_for('edit_schedule') }}" method="POST">
+                    <input type="hidden" id="editScheduleId" name="scheduleId">
+                    
+                    <div class="mb-4">
+                        <label class="block text-gray-700 font-medium mb-2" for="editScheduleName">
+                            Nom de la planification
+                        </label>
+                        <input type="text" id="editScheduleName" name="scheduleName" class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Nom de la planification" required>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-gray-700 font-medium mb-2" for="editScriptPath">
+                            Chemin du script
+                        </label>
+                        <div class="flex">
+                            <input type="text" id="editScriptPath" name="scriptPath" class="flex-grow px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="/path/to/script.py" required>
+                            <button type="button" id="editScriptBrowseBtn" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-r-md hover:bg-gray-300">
+                                <i class="fas fa-folder-open"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-gray-700 font-medium mb-2" for="editEnvPath">
+                            Environnement Python
+                        </label>
+                        <div class="flex">
+                            <input type="text" id="editEnvPath" name="envPath" class="flex-grow px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="/path/to/python" value="{{ sys_executable }}">
+                            <button type="button" id="editEnvBrowseBtn" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-r-md hover:bg-gray-300">
+                                <i class="fas fa-folder-open"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-gray-700 font-medium mb-2">
+                            Fréquence d'exécution
+                        </label>
+                        <div class="flex mb-4">
+                            <div class="mr-4">
+                                <input type="radio" id="editSimpleFrequencyType" name="frequencyType" value="simple" class="mr-2" checked>
+                                <label for="editSimpleFrequencyType">Simple</label>
+                            </div>
+                            <div>
+                                <input type="radio" id="editCronFrequencyType" name="frequencyType" value="cron" class="mr-2">
+                                <label for="editCronFrequencyType">Cron</label>
+                            </div>
+                        </div>
+
+                        <!-- Simple Frequency -->
+                        <div id="editSimpleFrequencyOptions" class="space-y-2">
+                            <div class="flex items-center mb-2">
+                                <input type="radio" id="editEveryMinutes" name="simpleFrequency" value="everyMinutes" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
+                                <label for="editEveryMinutes" class="ml-2 block text-sm text-gray-700">Toutes les X minutes</label>
+                                <div id="editEveryMinutesOptions" class="ml-6 hidden">
+                                    <label class="text-sm text-gray-600">Toutes les</label>
+                                    <select name="everyMinutesValue" id="editEveryMinutesValue" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                        {% for i in range(1, 60) %}
+                                            <option value="{{ i }}">{{ i }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <label class="text-sm text-gray-600 ml-2">minutes</label>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center mb-2">
+                                <input type="radio" id="editHourly" name="simpleFrequency" value="hourly" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500" checked>
+                                <label for="editHourly" class="ml-2 block text-sm text-gray-700">Horaire</label>
+                                <div id="editHourlyOptions" class="ml-6">
+                                    <label class="text-sm text-gray-600">À la minute</label>
+                                    <select name="hourlyMinute" id="editHourlyMinute" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                        {% for i in range(0, 60) %}
+                                            <option value="{{ i }}">{{ i }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center mb-2">
+                                <input type="radio" id="editDaily" name="simpleFrequency" value="daily" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
+                                <label for="editDaily" class="ml-2 block text-sm text-gray-700">Quotidien</label>
+                                <div id="editDailyOptions" class="ml-6 hidden">
+                                    <label class="text-sm text-gray-600">À</label>
+                                    <select name="dailyHour" id="editDailyHour" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                        {% for i in range(0, 24) %}
+                                            <option value="{{ i }}">{{ i }}:00</option>
+                                        {% endfor %}
+                                    </select>
+                                    <label class="text-sm text-gray-600 ml-2">:</label>
+                                    <select name="dailyMinute" id="editDailyMinute" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                        {% for i in range(0, 60) %}
+                                            <option value="{{ i }}">{{ i }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center mb-2">
+                                <input type="radio" id="editWeekly" name="simpleFrequency" value="weekly" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
+                                <label for="editWeekly" class="ml-2 block text-sm text-gray-700">Hebdomadaire</label>
+                                <div id="editWeeklyOptions" class="ml-6 hidden">
+                                    <label class="text-sm text-gray-600">Le</label>
+                                    <select name="weeklyDay" id="editWeeklyDay" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                        <option value="1">Lundi</option>
+                                        <option value="2">Mardi</option>
+                                        <option value="3">Mercredi</option>
+                                        <option value="4">Jeudi</option>
+                                        <option value="5">Vendredi</option>
+                                        <option value="6">Samedi</option>
+                                        <option value="0">Dimanche</option>
+                                    </select>
+                                    <label class="text-sm text-gray-600 ml-2">à</label>
+                                    <select name="weeklyHour" id="editWeeklyHour" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                        {% for i in range(0, 24) %}
+                                            <option value="{{ i }}">{{ i }}:00</option>
+                                        {% endfor %}
+                                    </select>
+                                    <label class="text-sm text-gray-600 ml-2">:</label>
+                                    <select name="weeklyMinute" id="editWeeklyMinute" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                        {% for i in range(0, 60) %}
+                                            <option value="{{ i }}">{{ i }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center">
+                                <input type="radio" id="editMonthly" name="simpleFrequency" value="monthly" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
+                                <label for="editMonthly" class="ml-2 block text-sm text-gray-700">Mensuel</label>
+                                <div id="editMonthlyOptions" class="ml-6 hidden">
+                                    <label class="text-sm text-gray-600">Le</label>
+                                    <select name="monthlyDay" id="editMonthlyDay" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                        {% for i in range(1, 32) %}
+                                            <option value="{{ i }}">{{ i }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <label class="text-sm text-gray-600 ml-2">à</label>
+                                    <select name="monthlyHour" id="editMonthlyHour" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                        {% for i in range(0, 24) %}
+                                            <option value="{{ i }}">{{ i }}:00</option>
+                                        {% endfor %}
+                                    </select>
+                                    <label class="text-sm text-gray-600 ml-2">:</label>
+                                    <select name="monthlyMinute" id="editMonthlyMinute" class="ml-2 p-1 border border-gray-300 rounded text-sm">
+                                        {% for i in range(0, 60) %}
+                                            <option value="{{ i }}">{{ i }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Cron Frequency -->
+                        <div id="editCronFrequencyOptions" class="hidden mt-4">
+                            <div class="cron-input mb-2">
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">Minute</label>
+                                    <input type="text" name="minute" id="editCronMinute" class="cron-field w-full px-2 py-1 border border-gray-300 rounded" placeholder="*" data-field="minute">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">Heure</label>
+                                    <input type="text" name="hour" id="editCronHour" class="cron-field w-full px-2 py-1 border border-gray-300 rounded" placeholder="*" data-field="hour">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">Jour</label>
+                                    <input type="text" name="day" id="editCronDay" class="cron-field w-full px-2 py-1 border border-gray-300 rounded" placeholder="*" data-field="day">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">Mois</label>
+                                    <input type="text" name="month" id="editCronMonth" class="cron-field w-full px-2 py-1 border border-gray-300 rounded" placeholder="*" data-field="month">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-500 mb-1">Jour de semaine</label>
+                                    <input type="text" name="weekday" id="editCronWeekday" class="cron-field w-full px-2 py-1 border border-gray-300 rounded" placeholder="*" data-field="weekday">
+                                </div>
+                            </div>
+                            <div class="text-xs text-gray-500 mb-4">
+                                Expression cron: <span id="editCronExpression">* * * * *</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end">
+                        <button type="button" class="px-4 py-2 bg-gray-300 text-gray-700 rounded mr-2 hover:bg-gray-400" id="cancelScheduleEdit">
+                            Annuler
+                        </button>
+                        <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">
+                            <i class="fas fa-save mr-2"></i>Enregistrer
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>

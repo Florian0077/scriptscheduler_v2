@@ -1,0 +1,37 @@
+.cron-input {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+}
+
+.log-entry {
+    transition: all 0.3s ease;
+}
+
+.log-entry:hover {
+    background-color: rgba(243, 244, 246, 0.5);
+}
+
+.terminal {
+    font-family: 'Courier New', monospace;
+    background-color: #1e1e1e;
+    color: #f0f0f0;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.flash-message {
+    animation: fadeOut 5s forwards;
+    animation-delay: 3s;
+}
+
+@keyframes fadeOut {
+    from {opacity: 1;}
+    to {opacity: 0; transform: translateY(-10px); display: none;}
+}
