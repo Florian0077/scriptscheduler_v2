@@ -45,3 +45,13 @@ backups/
 # Système d'exploitation
 .DS_Store
 Thumbs.db
+
+# Scripts
+scripts/
+
+# Data
+data/
+
+
+
+

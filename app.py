@@ -4,9 +4,11 @@ import json
 from datetime import datetime
 import subprocess
 import sys
+import signal
 from werkzeug.utils import secure_filename
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from pytz import utc
 from datetime import timedelta
 import uuid
@@ -84,8 +86,62 @@ def save_scripts(scripts):
         json.dump(scripts, f, indent=4)
 
 def get_logs():
-    with open(LOGS_FILE, 'r') as f:
-        return json.load(f)
+    """Récupère les journaux d'exécution en gérant les erreurs de format JSON"""
+    try:
+        with open(LOGS_FILE, 'r') as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"Erreur de décodage JSON dans logs.json: {str(e)}")
+        # Tenter de récupérer le fichier
+        try:
+            # Créer une sauvegarde du fichier corrompu
+            import shutil
+            backup_file = f"{LOGS_FILE}.bak"
+            shutil.copy2(LOGS_FILE, backup_file)
+            print(f"Sauvegarde du fichier logs.json corrompu créée: {backup_file}")
+            
+            # Lire le contenu brut du fichier
+            with open(LOGS_FILE, 'r') as f:
+                content = f.read()
+            
+            # Essayer de récupérer autant d'objets JSON valides que possible
+            valid_logs = []
+            start_pos = 0
+            while start_pos < len(content):
+                try:
+                    # Trouver le début d'un objet JSON
+                    while start_pos < len(content) and content[start_pos] != '{':
+                        start_pos += 1
+                    
+                    if start_pos >= len(content):
+                        break
+                    
+                    # Décoder un objet JSON
+                    obj, end_pos = json.JSONDecoder().raw_decode(content[start_pos:])
+                    valid_logs.append(obj)
+                    start_pos += end_pos
+                except json.JSONDecodeError:
+                    # Si on ne peut pas décoder, avancer d'un caractère et réessayer
+                    start_pos += 1
+                except Exception as e:
+                    print(f"Erreur pendant la récupération: {str(e)}")
+                    start_pos += 1
+            
+            # S'il n'y a pas de logs valides, créer une liste vide
+            if not valid_logs:
+                valid_logs = []
+            
+            # Sauvegarder les logs valides dans le fichier
+            save_logs(valid_logs)
+            print(f"Fichier logs.json réparé avec {len(valid_logs)} logs récupérés")
+            
+            return valid_logs
+        except Exception as e:
+            print(f"Échec de la récupération du fichier logs.json: {str(e)}")
+            # En dernier recours, réinitialiser le fichier
+            with open(LOGS_FILE, 'w') as f:
+                json.dump([], f)
+            return []
 
 def save_logs(logs):
     with open(LOGS_FILE, 'w') as f:
@@ -106,74 +162,138 @@ def add_log(schedule_id, schedule_name, script_path, status, output=None):
     save_logs(logs)
     return log_entry
 
-def execute_script(script_path, schedule_id=None, schedule_name=None, env_path=None):
-    """Exécute un script Python et enregistre le résultat"""
+def execute_script(script_path, schedule_id=None, schedule_name=None, env_path=None, timeout=30):
+    """Exécute un script Python avec un timeout optionnel"""
     try:
-        start_time = datetime.now()
+        # Convertir schedule_id en entier s'il est fourni comme chaîne
+        if schedule_id and isinstance(schedule_id, str) and schedule_id.isdigit():
+            schedule_id = int(schedule_id)
+            
+        # Vérifier si le script est déjà en cours d'exécution
+        if schedule_id and schedule_id in running_scripts:
+            # Vérifier si le processus est réellement en cours d'exécution
+            process_info = running_scripts[schedule_id]
+            if is_process_running(process_info['process']):
+                return add_log(
+                    schedule_id=schedule_id,
+                    schedule_name=schedule_name,
+                    script_path=script_path,
+                    status='warning',
+                    output='Le script est déjà en cours d\'exécution.'
+                )
+            else:
+                # Le processus n'est plus en cours d'exécution, on le retire de la liste
+                del running_scripts[schedule_id]
+            
+        # Utiliser le chemin par défaut de Python si aucun environnement n'est spécifié
+        if not env_path or not os.path.exists(env_path):
+            env_path = sys.executable
         
-        # Marquer le script comme en cours d'exécution
+        # Déterminer si c'est un service ou un script standard
+        is_service = False
         if schedule_id:
-            running_scripts[schedule_id] = start_time
+            schedules = get_schedules()
+            for schedule in schedules:
+                if schedule['id'] == schedule_id and schedule.get('schedule_type') == 'service':
+                    is_service = True
+                    break
         
-        # Si le chemin de script ou d'environnement Python n'existe pas, on utilise des valeurs par défaut
-        if not os.path.exists(script_path):
+        effective_timeout = None if is_service else timeout
+
+        # Déterminer le répertoire de travail (working directory)
+        # Utiliser le répertoire du script comme répertoire de travail pour tous les scripts
+        script_dir = os.path.dirname(os.path.abspath(script_path))
+        
+        try:
+            # Pour les services (serveurs Flask), ne pas rediriger les flux
+            if is_service:
+                process = subprocess.Popen(
+                    [env_path, script_path],
+                    cwd=script_dir,  # Utiliser le répertoire du script comme répertoire de travail
+                    start_new_session=True
+                )
+            else:
+                # Pour les scripts standards, rediriger les flux mais utiliser le même répertoire de travail
+                process = subprocess.Popen(
+                    [env_path, script_path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    cwd=script_dir,  # Utiliser le répertoire du script comme répertoire de travail
+                    start_new_session=True
+                )
+            
+            # Stocker le processus en cours d'exécution
+            # Si c'est un script planifié, on le stocke dans les scripts en cours
+            if schedule_id:
+                running_scripts[schedule_id] = {
+                    'process': process,
+                    'start_time': datetime.now().isoformat(),  # Stocke directement la date comme chaîne
+                    'script_path': script_path,
+                    'name': schedule_name or os.path.basename(script_path)
+                }
+            
+            # Si c'est un service ou un script instantané, on attend qu'il se termine
+            if not is_service:
+                try:
+                    stdout, stderr = process.communicate(timeout=effective_timeout)
+                    output = stdout + stderr
+                    status = 'success' if process.returncode == 0 else 'error'
+                    
+                    # Retirer le script de la liste des scripts en cours d'exécution
+                    if schedule_id and schedule_id in running_scripts:
+                        del running_scripts[schedule_id]
+                        
+                    return add_log(
+                        schedule_id=schedule_id,
+                        schedule_name=schedule_name,
+                        script_path=script_path,
+                        status=status,
+                        output=output
+                    )
+                except subprocess.TimeoutExpired:
+                    # En cas de timeout, tuer le processus
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                    except:
+                        process.kill()
+                    
+                    # Retirer le script de la liste des scripts en cours d'exécution
+                    if schedule_id and schedule_id in running_scripts:
+                        del running_scripts[schedule_id]
+                        
+                    return add_log(
+                        schedule_id=schedule_id,
+                        schedule_name=schedule_name,
+                        script_path=script_path,
+                        status='timeout',
+                        output='L\'exécution du script a dépassé le délai imparti.'
+                    )
+            else:
+                # Pour les services, on retourne immédiatement et on laisse le processus continuer
+                return add_log(
+                    schedule_id=schedule_id,
+                    schedule_name=schedule_name,
+                    script_path=script_path,
+                    status='success',  # Utiliser 'success' au lieu de 'running' pour un statut uniforme
+                    output='Service démarré.'
+                )
+                
+        except Exception as e:
+            # En cas d'erreur, s'assurer que le script est marqué comme terminé
             if schedule_id and schedule_id in running_scripts:
                 del running_scripts[schedule_id]
+                
             return add_log(
                 schedule_id=schedule_id,
                 schedule_name=schedule_name,
                 script_path=script_path,
                 status='error',
-                output=f'Le chemin du script "{script_path}" n\'existe pas.'
+                output=f'Erreur lors de l\'exécution: {str(e)}'
             )
-        
-        if not env_path or not os.path.exists(env_path):
-            env_path = sys.executable
             
-        # Exécuter le script
-        result = subprocess.run(
-            [env_path, script_path], 
-            capture_output=True, 
-            text=True, 
-            timeout=30  # Timeout après 30 secondes
-        )
-        
-        if result.returncode == 0:
-            status = 'success'
-            output = result.stdout
-        else:
-            status = 'error'
-            output = result.stderr
-        
-        # Ajouter un log
-        log_result = add_log(
-            schedule_id=schedule_id,
-            schedule_name=schedule_name,
-            script_path=script_path,
-            status=status,
-            output=output
-        )
-        
-        # Retirer le script de la liste des scripts en cours d'exécution
-        if schedule_id and schedule_id in running_scripts:
-            del running_scripts[schedule_id]
-            
-        return log_result
-    
-    except subprocess.TimeoutExpired:
-        # En cas de timeout, s'assurer que le script est marqué comme terminé
-        if schedule_id and schedule_id in running_scripts:
-            del running_scripts[schedule_id]
-            
-        return add_log(
-            schedule_id=schedule_id,
-            schedule_name=schedule_name,
-            script_path=script_path,
-            status='timeout',
-            output='L\'exécution du script a dépassé le délai imparti.'
-        )
     except Exception as e:
-        # En cas d'erreur, s'assurer que le script est marqué comme terminé
+        # Gestion d'erreur générale pour toute la fonction
         if schedule_id and schedule_id in running_scripts:
             del running_scripts[schedule_id]
             
@@ -182,8 +302,57 @@ def execute_script(script_path, schedule_id=None, schedule_name=None, env_path=N
             schedule_name=schedule_name,
             script_path=script_path,
             status='error',
-            output=f'Erreur lors de l\'exécution: {str(e)}'
+            output=f'Erreur générale: {str(e)}'
         )
+
+def check_service_status(schedule_id):
+    """Vérifie l'état d'un service et le redémarre si nécessaire"""
+    try:
+        # Récupérer les planifications
+        schedules = get_schedules()
+        schedule = None
+        
+        # Trouver la planification correspondante
+        for s in schedules:
+            if s['id'] == schedule_id:
+                schedule = s
+                break
+        
+        if not schedule:
+            return  # La planification n'existe pas
+            
+        if not schedule.get('enabled', True) or schedule.get('schedule_type') != 'service':
+            return  # Ce n'est pas un service actif
+            
+        # Vérifier si le service est en cours d'exécution
+        if schedule_id in running_scripts:
+            # Le service est déjà en cours d'exécution, tout est bon
+            return
+            
+        # Trouver le dernier log pour ce service
+        logs = get_logs()
+        last_log = None
+        
+        # Trier les logs par ID (du plus récent au plus ancien)
+        logs_sorted = sorted(logs, key=lambda x: x['id'], reverse=True)
+        for log in logs_sorted:
+            if log['schedule_id'] == schedule_id:
+                last_log = log
+                break
+                
+        # Si pas de log ou si le dernier log indique une erreur, redémarrer le service
+        if not last_log or last_log['status'] in ['error', 'timeout']:
+            print(f"Redémarrage du service {schedule['name']} (ID: {schedule_id})")
+            execute_script(
+                schedule['script_path'], 
+                schedule_id, 
+                schedule['name'], 
+                schedule.get('env_path', sys.executable), 
+                schedule.get('timeout', 30)
+            )
+            
+    except Exception as e:
+        print(f"Erreur lors de la vérification du service {schedule_id}: {str(e)}")
 
 def update_scheduler():
     """
@@ -194,6 +363,9 @@ def update_scheduler():
     
     # Récupérer toutes les planifications
     schedules = get_schedules()
+    
+    # Créer une liste des services à démarrer automatiquement
+    auto_start_services = []
     
     # Ajouter chaque planification active au planificateur
     for schedule in schedules:
@@ -215,27 +387,171 @@ def update_scheduler():
                 day_of_week=day_of_week
             )
             
-            # Ajouter la tâche au planificateur
-            scheduler.add_job(
-                execute_script,
-                trigger=trigger,
-                args=[schedule['script_path'], schedule['id'], schedule['name'], schedule.get('env_path', sys.executable)],
-                id=f"schedule_{schedule['id']}",
-                replace_existing=True
-            )
+            # Si c'est un service, on considère qu'il doit être exécuté plus fréquemment
+            # pour s'assurer qu'il reste actif
+            if schedule.get('schedule_type') == 'service':
+                # Pour les services, on vérifie s'il doit démarrer automatiquement
+                auto_start = schedule.get('auto_start', False)
+                
+                # On ajoute la tâche planifiée selon la configuration cron seulement si autoStart est activé
+                if auto_start:
+                    print(f"Configuration du démarrage auto pour service {schedule['name']} (ID: {schedule['id']})")
+                    scheduler.add_job(
+                        execute_script,
+                        trigger=trigger,
+                        args=[schedule['script_path'], schedule['id'], schedule['name'], schedule.get('env_path', sys.executable), schedule.get('timeout', 30)],
+                        id=f"schedule_{schedule['id']}",
+                        replace_existing=True
+                    )
+                    
+                    # Ajouter le service à la liste de démarrage automatique différé
+                    auto_start_services.append(schedule)
+                
+                # Ajouter une tâche de surveillance supplémentaire qui vérifie l'état du service
+                # et le redémarre si nécessaire (uniquement pour les services actifs)
+                if schedule.get('enabled', True):
+                    interval_minutes = 5  # Vérifier toutes les 5 minutes
+                    scheduler.add_job(
+                        check_service_status,
+                        'interval',
+                        minutes=interval_minutes,
+                        args=[schedule['id']],
+                        id=f"service_check_{schedule['id']}",
+                        replace_existing=True
+                    )
+            else:
+                # Pour les planifications standard, on ajoute simplement la tâche
+                scheduler.add_job(
+                    execute_script,
+                    trigger=trigger,
+                    args=[schedule['script_path'], schedule['id'], schedule['name'], schedule.get('env_path', sys.executable), schedule.get('timeout', 30)],
+                    id=f"schedule_{schedule['id']}",
+                    replace_existing=True
+                )
+    
+    # Planifier le démarrage des services automatiques après 5 secondes
+    # pour permettre au serveur de démarrer correctement
+    if auto_start_services:
+        def delayed_service_start():
+            import time
+            # Attendre que le serveur soit complètement démarré
+            time.sleep(5)
+            for service in auto_start_services:
+                print(f"Lancement différé du service {service['name']} (ID: {service['id']})")
+                execute_script(
+                    script_path=service['script_path'],
+                    schedule_id=service['id'],
+                    schedule_name=service['name'],
+                    env_path=service.get('env_path', sys.executable),
+                    timeout=service.get('timeout', 30)
+                )
+        
+        # Lancer le démarrage des services dans un thread séparé
+        import threading
+        service_thread = threading.Thread(target=delayed_service_start)
+        service_thread.daemon = True  # Le thread s'arrêtera si le programme principal s'arrête
+        service_thread.start()
+
+# Variable globale pour stocker les scripts en cours d'exécution et leurs processus
+running_scripts = {}
+
+# Corriger les objets datetime dans running_scripts
+def sanitize_running_scripts():
+    """Convertit tous les objets datetime en chaînes ISO dans running_scripts"""
+    for schedule_id, process_info in list(running_scripts.items()):
+        # Vérifier si le processus est toujours en cours d'exécution
+        if not is_process_running(process_info['process']):
+            del running_scripts[schedule_id]
+            continue
+            
+        # Convertir start_time en chaîne si c'est un objet datetime
+        if 'start_time' in process_info and isinstance(process_info['start_time'], datetime):
+            process_info['start_time'] = process_info['start_time'].isoformat()
+        
+        # S'assurer que le nom est défini
+        if 'name' not in process_info or not process_info['name']:
+            process_info['name'] = os.path.basename(process_info.get('script_path', 'script inconnu'))
+
+def is_process_running(process):
+    """Vérifie si un processus est toujours en cours d'exécution"""
+    if process is None:
+        return False
+    try:
+        # poll() renvoie None si le processus est toujours en cours d'exécution
+        # sinon, il renvoie le code de retour
+        return process.poll() is None
+    except:
+        return False
+
+# Fonction utilitaire pour assainir les objets datetime dans les dictionnaires
+def sanitize_dict_datetimes(data):
+    """Convertit récursivement tous les objets datetime en chaînes ISO dans un dictionnaire ou une liste"""
+    if isinstance(data, dict):
+        for key, value in list(data.items()):
+            if isinstance(value, datetime):
+                data[key] = value.isoformat()
+            elif isinstance(value, (dict, list)):
+                data[key] = sanitize_dict_datetimes(value)
+    elif isinstance(data, list):
+        for i, item in enumerate(data):
+            if isinstance(item, datetime):
+                data[i] = item.isoformat()
+            elif isinstance(item, (dict, list)):
+                data[i] = sanitize_dict_datetimes(item)
+    return data
+
+# Modifier la fonction jsonify pour convertir automatiquement les objets datetime
+original_jsonify = jsonify
+def safe_jsonify(*args, **kwargs):
+    """Version sécurisée de jsonify qui convertit automatiquement les objets datetime"""
+    # Traiter les arguments positionnels
+    sanitized_args = [sanitize_dict_datetimes(arg) if isinstance(arg, (dict, list)) else arg for arg in args]
+    # Traiter les arguments nommés
+    sanitized_kwargs = {k: sanitize_dict_datetimes(v) if isinstance(v, (dict, list)) else v for k, v in kwargs.items()}
+    return original_jsonify(*sanitized_args, **sanitized_kwargs)
+
+# Remplacer jsonify par notre version sécurisée
+jsonify = safe_jsonify
 
 @app.route('/')
 def index():
     schedules = get_schedules()
-    scripts = get_scripts()
     logs = get_logs()
+    scripts = get_scripts()
     
-    # Passer le statut d'exécution des scripts au template
-    return render_template('index.html', 
-                           schedules=schedules, 
-                           scripts=scripts, 
-                           logs=logs, 
-                           running_scripts=running_scripts)
+    # Nettoyer et assainir la liste des scripts en cours d'exécution
+    sanitize_running_scripts()
+    
+    # Ajouter les informations de statut à chaque planification
+    for schedule in schedules:
+        # Déterminer la couleur du statut
+        if not schedule.get('enabled', True):
+            schedule['status_color'] = 'gray'
+        elif schedule['id'] in running_scripts:
+            schedule['status_color'] = 'green'
+        else:
+            # Chercher le dernier log pour cette planification
+            last_log = None
+            for log in logs:
+                if log.get('schedule_id') == schedule['id']:
+                    if not last_log or log['id'] > last_log['id']:
+                        last_log = log
+            
+            if last_log and last_log['status'] == 'success':
+                schedule['status_color'] = 'green'
+            elif last_log and last_log['status'] == 'error':
+                schedule['status_color'] = 'red'
+            else:
+                schedule['status_color'] = 'indigo'
+    
+    return render_template(
+        'index.html', 
+        schedules=schedules, 
+        logs=logs, 
+        scripts=scripts, 
+        running_scripts=running_scripts,
+        sys_executable=sys.executable
+    )
 
 @app.route('/schedules', methods=['GET', 'POST'])
 def manage_schedules():
@@ -244,6 +560,9 @@ def manage_schedules():
         script_path = request.form.get('scriptPath')
         env_path = request.form.get('envPath')
         frequency_type = request.form.get('frequencyType')
+        
+        # Récupérer le type de planification (standard ou service)
+        schedule_type = request.form.get('scheduleType', 'standard')
         
         if frequency_type == 'simple':
             simple_frequency = request.form.get('simpleFrequency')
@@ -297,9 +616,15 @@ def manage_schedules():
             'schedule': schedule,
             'frequency_type': frequency_type,
             'simple_frequency': simple_frequency if frequency_type == 'simple' else None,
+            'schedule_type': schedule_type,
+            'timeout': int(request.form.get('timeout', 30)),
             'enabled': True,
             'created_at': datetime.now().isoformat()
         }
+        
+        # Si c'est un service, on ajoute l'option de démarrage automatique
+        if schedule_type == 'service':
+            new_schedule['auto_start'] = request.form.get('autoStart') == 'on'
         
         schedules.append(new_schedule)
         save_schedules(schedules)
@@ -346,6 +671,12 @@ def edit_schedule():
     script_path = request.form.get('scriptPath')
     env_path = request.form.get('envPath')
     frequency_type = request.form.get('frequencyType')
+    
+    # Récupérer le type de planification (standard ou service)
+    schedule_type = request.form.get('scheduleType', 'standard')
+    
+    # Récupérer le timeout personnalisé (en secondes)
+    timeout = int(request.form.get('timeout', 30))
     
     if frequency_type == 'simple':
         simple_frequency = request.form.get('simpleFrequency')
@@ -398,7 +729,14 @@ def edit_schedule():
             s['schedule'] = schedule
             s['frequency_type'] = frequency_type
             s['simple_frequency'] = simple_frequency if frequency_type == 'simple' else None
+            s['schedule_type'] = schedule_type
+            s['timeout'] = timeout  # Ajouter le timeout personnalisé
             s['updated_at'] = datetime.now().isoformat()
+            
+            # Si c'est un service, on met à jour l'option de démarrage automatique
+            if schedule_type == 'service':
+                s['auto_start'] = request.form.get('autoStart') == 'on'
+            
             break
     
     save_schedules(schedules)
@@ -408,6 +746,48 @@ def edit_schedule():
     update_scheduler()
     
     return redirect(url_for('index'))
+
+@app.route('/schedules/<int:schedule_id>/run', methods=['POST'])
+def run_schedule(schedule_id):
+    schedules = get_schedules()
+    schedule_to_run = None
+    
+    for schedule in schedules:
+        if schedule['id'] == schedule_id:
+            schedule_to_run = schedule
+            break
+    
+    if schedule_to_run:
+        # Ne pas ajouter le script aux scripts en cours d'exécution ici
+        # execute_script le fera avec les informations complètes
+        
+        try:
+            # Exécuter le script avec le timeout personnalisé
+            timeout = schedule_to_run.get('timeout', 30)
+            result = execute_script(
+                schedule_to_run['script_path'],
+                schedule_id,
+                schedule_to_run['name'],
+                schedule_to_run.get('env_path', sys.executable),
+                timeout
+            )
+            
+            return jsonify({
+                'status': result['status'],
+                'output': result['output'] if 'output' in result else 'Exécution terminée'
+            })
+            
+        except Exception as e:
+            # En cas d'erreur, s'assurer que le script est marqué comme terminé
+            if schedule_id in running_scripts:
+                del running_scripts[schedule_id]
+            
+            return jsonify({
+                'status': 'error',
+                'output': str(e)
+            })
+    
+    return jsonify({'error': 'Planification non trouvée'}), 404
 
 @app.route('/schedules/<int:schedule_id>', methods=['GET'])
 def get_schedule(schedule_id):
@@ -527,12 +907,15 @@ def run_script(script_id):
     
     if script_to_run:
         try:
+            # Récupérer le timeout personnalisé s'il existe, sinon utiliser 30 secondes par défaut
+            timeout = script_to_run.get('timeout', 30)
+            
             # Exécuter le script
             result = subprocess.run(
                 [script_to_run['env_path'], script_to_run['path']], 
                 capture_output=True, 
                 text=True, 
-                timeout=30  # Timeout après 30 secondes
+                timeout=timeout  # Utiliser le timeout personnalisé
             )
             
             if result.returncode == 0:
@@ -586,6 +969,7 @@ def run_scheduled_script(schedule_id):
     if schedule_to_run:
         script_path = schedule_to_run['script_path']
         env_path = schedule_to_run.get('env_path', sys.executable)
+        timeout = schedule_to_run.get('timeout', 30)  # Récupérer le timeout personnalisé
         
         try:
             # Exécuter le script
@@ -593,7 +977,7 @@ def run_scheduled_script(schedule_id):
                 [env_path, script_path], 
                 capture_output=True, 
                 text=True, 
-                timeout=30
+                timeout=timeout  # Utiliser le timeout personnalisé
             )
             
             if result.returncode == 0:
@@ -644,10 +1028,29 @@ def clear_logs():
 def get_logs_api():
     """API pour récupérer les journaux d'exécution"""
     logs = get_logs()
+    
     # Convertir explicitement les IDs en chaînes pour garantir la cohérence
     for log in logs:
         if 'id' in log:
             log['id'] = str(log['id'])
+    
+    # Filtrer par schedule_id si spécifié
+    schedule_id = request.args.get('schedule_id')
+    if schedule_id:
+        # Debug du problème de correspondance de types
+        print(f"Recherche de logs pour schedule_id: {schedule_id}, type: {type(schedule_id)}")
+        # Assurer que la comparaison est indépendante du type
+        logs = [log for log in logs if str(log.get('schedule_id', '')) == str(schedule_id)]
+        print(f"Logs trouvés: {len(logs)}")
+    
+    # Retourner uniquement le dernier log si demandé
+    last_only = request.args.get('last') == 'true'
+    if last_only and logs:
+        # Trier par ID en ordre décroissant (le plus récent en premier)
+        logs.sort(key=lambda x: int(x['id']) if x.get('id') else 0, reverse=True)
+        # Ne garder que le premier élément (le plus récent)
+        logs = [logs[0]]
+    
     return jsonify(logs)
 
 @app.route('/settings', methods=['GET', 'POST'])
@@ -909,10 +1312,91 @@ def check_updates():
         'message': "Votre application est à jour."
     })
 
-# Dictionnaire pour suivre les scripts en cours d'exécution
-running_scripts = {}
+@app.route('/stop_script/<schedule_id>', methods=['POST'])
+def stop_script(schedule_id):
+    """Arrête l'exécution d'un script en cours"""
+    try:
+        # Nettoyer la liste des scripts en cours d'exécution
+        sanitize_running_scripts()
+        
+        # Essayer avec différents types (chaîne et entier)
+        if schedule_id in running_scripts:
+            key = schedule_id
+        elif int(schedule_id) in running_scripts:
+            key = int(schedule_id)
+        else:
+            # Afficher les clés actuellement en cours pour le débogage
+            running_keys = list(running_scripts.keys())
+            print(f"Schedule ID reçu: {schedule_id}, type: {type(schedule_id)}")
+            print(f"Clés actuelles: {running_keys}")
+            flash('Le script n\'est pas en cours d\'exécution.', 'warning')
+            return redirect(url_for('index'))
+            
+        process_info = running_scripts[key]
+        process = process_info['process']
+        
+        # Essayer de tuer le processus et son groupe
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        except:
+            # Fallback si killpg ne fonctionne pas
+            process.kill()
+            
+        # Mettre à jour le log
+        add_log(
+            schedule_id=schedule_id,
+            schedule_name=process_info['name'],
+            script_path=process_info['script_path'],
+            status='stopped',
+            output='Script arrêté manuellement.'
+        )
+        
+        # Supprimer le script de la liste des scripts en cours
+        del running_scripts[key]
+        
+        flash('Script arrêté avec succès!', 'success')
+        return redirect(url_for('index'))
+    except Exception as e:
+        flash(f'Erreur lors de l\'arrêt du script: {str(e)}', 'error')
+        return redirect(url_for('index'))
 
-# Initialisation du planificateur
+@app.route('/script_status', methods=['GET'])
+def script_status():
+    """API pour vérifier le statut d'exécution des scripts"""
+    # Nettoyer et assainir la liste des scripts en cours d'exécution
+    sanitize_running_scripts()
+    
+    running_status = {}
+    for schedule_id, process_info in running_scripts.items():
+        running_status[schedule_id] = {
+            'running': True,
+            'start_time': process_info['start_time'],  # Déjà converti en chaîne par sanitize_running_scripts
+            'name': process_info['name']
+        }
+    
+    return jsonify(running_status)
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Gestionnaire global d'erreurs pour capturer et journaliser toutes les exceptions"""
+    # Journaliser l'erreur avec les informations de traçage complètes
+    import traceback
+    error_details = traceback.format_exc()
+    print(f"ERREUR DÉTAILLÉE: {error_details}")
+    
+    # Si c'est une requête JSON/API, retourner une réponse JSON
+    if request.path.startswith('/api') or request.is_json:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'details': error_details
+        }), 500
+    
+    # Pour une requête web normale, afficher un message d'erreur
+    flash(f'Erreur générale: {str(e)}', 'error')
+    return redirect(url_for('index'))
+
+# Initialiser le planificateur
 scheduler = BackgroundScheduler(timezone=utc)
 scheduler.start()
 

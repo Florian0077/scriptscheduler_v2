@@ -1,39 +1,252 @@
+// Fonction pour basculer l'affichage de la section de fréquence en fonction du type de planification sélectionné
+function toggleEditFrequencySection() {
+    console.log("Exécution de toggleEditFrequencySection");
+    const scheduleType = document.querySelector('input[name="scheduleType"]:checked');
+    if (!scheduleType) {
+        console.error("Aucun type de planification sélectionné");
+        return;
+    }
+    
+    const scheduleTypeValue = scheduleType.value;
+    console.log("Type de planification sélectionné:", scheduleTypeValue);
+    
+    // Sections à afficher/masquer
+    const timeoutField = document.getElementById('editTimeout');
+    const timeoutSection = timeoutField ? timeoutField.closest('.mb-4') : null;
+    const frequencySection = document.querySelector('form#editScheduleForm div:nth-child(6)');
+    const serviceOptions = document.getElementById('editServiceOptions');
+    
+    console.log("Éléments trouvés:", {
+        timeoutSection: timeoutSection !== null,
+        frequencySection: frequencySection !== null,
+        serviceOptions: serviceOptions !== null
+    });
+    
+    if (scheduleTypeValue === 'service') {
+        // Pour les services, on cache les sections de fréquence et timeout
+        if (frequencySection) frequencySection.classList.add('hidden');
+        if (timeoutSection) timeoutSection.classList.add('hidden');
+        if (serviceOptions) serviceOptions.classList.remove('hidden');
+        
+        // On rend les champs de fréquence non requis
+        const frequencyFields = document.querySelectorAll('.frequency-field');
+        frequencyFields.forEach(field => {
+            field.removeAttribute('required');
+        });
+        
+        // Le délai d'exécution n'est pas requis pour les services
+        if (timeoutField) {
+            timeoutField.removeAttribute('required');
+            // Valeur par défaut pour services (très longue durée)
+            timeoutField.value = '3600';
+        }
+    } else {
+        // Pour les planifications standard, on affiche les sections de fréquence et timeout
+        if (frequencySection) frequencySection.classList.remove('hidden');
+        if (timeoutSection) timeoutSection.classList.remove('hidden');
+        if (serviceOptions) serviceOptions.classList.add('hidden');
+        
+        // On rend les champs de fréquence requis
+        const frequencyFields = document.querySelectorAll('.frequency-field');
+        frequencyFields.forEach(field => {
+            field.setAttribute('required', 'required');
+        });
+        
+        // Le délai d'exécution est requis pour les planifications standard
+        if (timeoutField) {
+            timeoutField.setAttribute('required', 'required');
+            // Valeur par défaut pour scripts standards
+            timeoutField.value = '30';
+        }
+    }
+}
+
+// Fonction directe pour éditer une planification
+function editScheduleDirectly(scheduleId) {
+    console.log("Édition directe pour schedule_id:", scheduleId);
+    
+    // Ouvrir la modal d'édition
+    const modal = document.getElementById('scheduleEditorModal');
+    if (modal) {
+        modal.classList.remove('hidden');
+    } else {
+        console.error("La modal d'édition est introuvable!");
+        return;
+    }
+    
+    try {
+        // Récupérer et remplir les données de la planification
+        fetch(`/schedules/${scheduleId}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Erreur HTTP! Statut: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(schedule => {
+                console.log("Données reçues:", schedule);
+                
+                // Remplir les champs du formulaire avec les données récupérées
+                document.getElementById('editScheduleId').value = schedule.id || '';
+                document.getElementById('editScheduleName').value = schedule.name || '';
+                document.getElementById('editScriptPath').value = schedule.script_path || '';
+                document.getElementById('editEnvPath').value = schedule.env_path || '';
+                document.getElementById('editTimeout').value = schedule.timeout || 30;
+                
+                // Sélectionner le type de planification (standard ou service)
+                const editServiceTypeRadio = document.getElementById('editServiceType');
+                const editStandardTypeRadio = document.getElementById('editStandardType');
+                
+                if (schedule.schedule_type === 'service' && editServiceTypeRadio) {
+                    editServiceTypeRadio.checked = true;
+                    // Précharger l'option de démarrage automatique
+                    const autoStartCheckbox = document.getElementById('editAutoStart');
+                    if (autoStartCheckbox) {
+                        autoStartCheckbox.checked = schedule.auto_start || false;
+                    }
+                } else if (editStandardTypeRadio) {
+                    editStandardTypeRadio.checked = true;
+                }
+                
+                // Mettre à jour l'interface en fonction du type sélectionné
+                setTimeout(toggleEditFrequencySection, 100); // Petit délai pour s'assurer que le DOM est à jour
+            })
+            .catch(error => {
+                console.error('Erreur:', error);
+                alert('Erreur lors de la récupération des détails de la planification');
+            });
+    } catch (e) {
+        console.error("Erreur générale dans editScheduleDirectly:", e);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // Variables globales
     let logsRefreshInterval = null;
     const REFRESH_INTERVAL = 5000; // 5 secondes
-
+    
+    // Assigner les écouteurs d'événements pour les types de planification
+    const editFormRadios = document.querySelectorAll('#editScheduleForm input[name="scheduleType"]');
+    editFormRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            console.log(`Type ${this.value} sélectionné`);
+            toggleEditFrequencySection();
+        });
+    });
+    
     // Gestion des onglets principaux
     const navTabButtons = document.querySelectorAll('.tab-btn');
     const tabContents = document.querySelectorAll('.tab-content');
     
-    // Gestionnaire pour les onglets de navigation principaux
     navTabButtons.forEach(button => {
         button.addEventListener('click', function() {
-            // Mettre à jour les classes des boutons
+            const targetId = this.getAttribute('data-tab');
+            
+            // Désactiver tous les onglets et cacher tous les contenus
             navTabButtons.forEach(btn => {
                 btn.classList.remove('active');
                 btn.classList.remove('text-indigo-600', 'border-b-2', 'border-indigo-600');
                 btn.classList.add('text-gray-500');
             });
             
+            // Activer l'onglet cliqué
             this.classList.add('active');
             this.classList.add('text-indigo-600', 'border-b-2', 'border-indigo-600');
             this.classList.remove('text-gray-500');
             
-            // Afficher le contenu de l'onglet
-            const targetId = this.getAttribute('data-tab');
+            // Afficher le contenu correspondant
             tabContents.forEach(content => {
+                content.classList.add('hidden');
                 content.classList.remove('active');
             });
-            document.getElementById(targetId).classList.add('active');
             
-            // Gérer le rafraîchissement des journaux si l'onglet logs est actif
-            if (targetId === 'logs') {
-                startLogsRefresh();
-            } else {
-                stopLogsRefresh();
+            const tabContent = document.getElementById(targetId);
+            if (tabContent) {
+                tabContent.classList.remove('hidden');
+                tabContent.classList.add('active');
             }
+        });
+    });
+
+    // === Gestion des logs ===
+    // Boutons pour voir les logs
+    document.querySelectorAll('.view-last-execution').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const scheduleId = this.getAttribute('data-schedule-id');
+            const logModal = document.getElementById('logDetailsModal');
+            const logOutputElement = document.getElementById('logOutput');
+            const logScriptPath = document.getElementById('logScriptPath');
+            const logTimestamp = document.getElementById('logTimestamp');
+            const logStatus = document.getElementById('logStatus');
+            
+            console.log("Récupération du log pour schedule_id:", scheduleId);
+            
+            if (!logModal || !logOutputElement) {
+                console.error("Éléments du modal de logs introuvables");
+                return;
+            }
+            
+            // Message de chargement
+            logOutputElement.innerHTML = 'Chargement des journaux...';
+            logModal.classList.remove('hidden');
+            
+            // Faire une requête pour récupérer tous les logs
+            fetch('/logs')
+                .then(response => response.json())
+                .then(allLogs => {
+                    console.log("Tous les logs reçus:", allLogs);
+                    
+                    // Filtrer les logs pour ce schedule_id côté client
+                    // Astuce: convertir les deux côtés en chaînes pour la comparaison
+                    const scheduleLogs = allLogs.filter(log => 
+                        String(log.schedule_id) === String(scheduleId)
+                    );
+                    
+                    console.log(`Logs trouvés pour schedule_id ${scheduleId}:`, scheduleLogs);
+                    
+                    if (scheduleLogs.length > 0) {
+                        // Trier par date (plus récent en premier)
+                        scheduleLogs.sort((a, b) => 
+                            new Date(b.timestamp || 0) - new Date(a.timestamp || 0)
+                        );
+                        
+                        const lastLog = scheduleLogs[0];
+                        console.log("Log le plus récent:", lastLog);
+                        
+                        // Mettre à jour les informations du modal
+                        logOutputElement.innerHTML = lastLog.output || 'Aucune sortie disponible.';
+                        
+                        // Ajouter les détails supplémentaires si les éléments existent
+                        if (logScriptPath) logScriptPath.textContent = lastLog.script_path || '';
+                        if (logTimestamp) logTimestamp.textContent = new Date(lastLog.timestamp).toLocaleString();
+                        if (logStatus) {
+                            logStatus.textContent = lastLog.status === 'success' ? 'Succès' : 'Erreur';
+                            logStatus.className = lastLog.status === 'success' ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold';
+                        }
+                        
+                        const errorContainer = document.getElementById('logErrorContainer');
+                        if (errorContainer) {
+                            if (lastLog.status === 'error' && lastLog.error) {
+                                errorContainer.classList.remove('hidden');
+                                document.getElementById('logError').textContent = lastLog.error;
+                            } else {
+                                errorContainer.classList.add('hidden');
+                            }
+                        }
+                    } else {
+                        console.log("Aucun log trouvé pour ce schedule_id");
+                        logOutputElement.innerHTML = 'Aucun journal d\'exécution trouvé pour cette planification.';
+                        
+                        // Réinitialiser les autres champs
+                        if (logScriptPath) logScriptPath.textContent = '';
+                        if (logTimestamp) logTimestamp.textContent = '';
+                        if (logStatus) logStatus.textContent = '';
+                    }
+                })
+                .catch(error => {
+                    console.error('Erreur:', error);
+                    logOutputElement.innerHTML = 'Erreur lors de la récupération des journaux d\'exécution.';
+                });
         });
     });
     
@@ -126,39 +339,36 @@ document.addEventListener('DOMContentLoaded', function() {
         logsContainer.innerHTML = html;
         
         // Réattacher les écouteurs d'événements pour les boutons de visualisation de logs
+        attachViewLogButtonHandlers();
+    }
+    
+    // Fonction pour attacher les gestionnaires d'événements aux boutons view-log-btn
+    function attachViewLogButtonHandlers() {
         document.querySelectorAll('.view-log-btn').forEach(button => {
             button.addEventListener('click', function() {
                 const logId = this.getAttribute('data-log-id');
                 console.log('Clic sur le log avec ID:', logId);
                 
-                // Conversion explicite des IDs en chaînes de caractères pour la comparaison
-                const log = logs.find(l => String(l.id) === String(logId));
-                
-                if (log) {
-                    console.log('Log trouvé:', log);
-                    showLogDetails(log);
-                } else {
-                    console.error('Log non trouvé avec ID:', logId);
-                    console.log('Logs disponibles:', logs);
-                }
+                // Récupérer tous les logs
+                fetch('/logs')
+                    .then(response => response.json())
+                    .then(logs => {
+                        // Conversion explicite des IDs en chaînes de caractères pour la comparaison
+                        const log = logs.find(l => String(l.id) === String(logId));
+                        
+                        if (log) {
+                            console.log('Log trouvé:', log);
+                            showLogDetails(log);
+                        } else {
+                            console.error('Log non trouvé avec ID:', logId);
+                            alert('Log non trouvé.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Erreur:', error);
+                        alert('Erreur lors de la récupération des logs.');
+                    });
             });
-        });
-    }
-    
-    // Gestion de la modal des détails de logs
-    const logDetailsModal = document.getElementById('logDetailsModal');
-    const closeLogDetailsBtn = document.getElementById('closeLogDetailsBtn');
-    const closeLogDetailsX = document.getElementById('closeLogDetails');
-    
-    if (closeLogDetailsBtn) {
-        closeLogDetailsBtn.addEventListener('click', function() {
-            logDetailsModal.classList.add('hidden');
-        });
-    }
-    
-    if (closeLogDetailsX) {
-        closeLogDetailsX.addEventListener('click', function() {
-            logDetailsModal.classList.add('hidden');
         });
     }
     
@@ -195,11 +405,22 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Initialiser le rafraîchissement si l'onglet logs est actif au chargement
-    if (document.querySelector('.tab-btn[data-tab="logs"].active')) {
-        startLogsRefresh();
+    // Fermer le modal des logs
+    const closeLogDetailsBtn = document.getElementById('closeLogDetailsBtn');
+    const closeLogDetails = document.getElementById('closeLogDetails');
+    
+    if (closeLogDetailsBtn) {
+        closeLogDetailsBtn.addEventListener('click', function() {
+            document.getElementById('logDetailsModal').classList.add('hidden');
+        });
     }
-
+    
+    if (closeLogDetails) {
+        closeLogDetails.addEventListener('click', function() {
+            document.getElementById('logDetailsModal').classList.add('hidden');
+        });
+    }
+    
     // Gestion des onglets secondaires
     const secondaryTabButtons = document.querySelectorAll('.tab-button');
     const secondaryTabContents = document.querySelectorAll('.tab-content');
@@ -438,9 +659,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Clear logs
     const clearLogsBtn = document.getElementById('clearLogsBtn');
     if (clearLogsBtn) {
-        clearLogsBtn.addEventListener('click', () => {
-            if (confirm('Are you sure you want to clear all logs?')) {
-                alert('Logs cleared!');
+        clearLogsBtn.addEventListener('click', function(e) {
+            if (!confirm('Êtes-vous sûr de vouloir effacer tous les journaux d\'exécution?')) {
+                e.preventDefault();
             }
         });
     }
@@ -672,10 +893,235 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Gestion des boutons pour éditer une planification
-    const editScheduleBtns = document.querySelectorAll('.edit-schedule');
-    const scheduleEditorModal = document.getElementById('scheduleEditorModal');
-    const closeScheduleEditor = document.getElementById('closeScheduleEditor');
-    const cancelScheduleEdit = document.getElementById('cancelScheduleEdit');
+    document.addEventListener('click', function(event) {
+        // Vérifier si le clic est sur un bouton d'édition
+        if (event.target.closest('.edit-schedule')) {
+            const btn = event.target.closest('.edit-schedule');
+            const scheduleId = btn.getAttribute('data-schedule-id');
+            console.log("Édition demandée pour schedule_id:", scheduleId);
+            
+            // Ouvrir la modal d'édition
+            const modal = document.getElementById('scheduleEditorModal'); 
+            if (modal) {
+                modal.classList.remove('hidden');
+            } else {
+                console.error("La modal d'édition est introuvable! ID attendu: scheduleEditorModal");
+                // Liste tous les modals disponibles pour aider au débogage
+                document.querySelectorAll('.fixed.inset-0').forEach(el => {
+                    console.log("Modal trouvé:", el.id);
+                });
+            }
+            
+            // Récupérer et remplir les données de la planification
+            fetch(`/schedules/${scheduleId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Erreur HTTP! Statut: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(schedule => {
+                    console.log("Données reçues:", schedule);
+                    document.getElementById('editScheduleId').value = schedule.id;
+                    document.getElementById('editScheduleName').value = schedule.name;
+                    document.getElementById('editScriptPath').value = schedule.script_path;
+                    document.getElementById('editEnvPath').value = schedule.env_path || '';
+                    document.getElementById('editTimeout').value = schedule.timeout || 30;
+                    
+                    // Sélectionner le type de planification (standard ou service)
+                    const editServiceTypeRadio = document.getElementById('editServiceType');
+                    const editStandardTypeRadio = document.getElementById('editStandardType');
+                    
+                    if (schedule.schedule_type === 'service' && editServiceTypeRadio) {
+                        editServiceTypeRadio.checked = true;
+                        // Précharger l'option de démarrage automatique
+                        const autoStartCheckbox = document.getElementById('editAutoStart');
+                        if (autoStartCheckbox) {
+                            autoStartCheckbox.checked = schedule.auto_start || false;
+                        }
+                    } else if (editStandardTypeRadio) {
+                        editStandardTypeRadio.checked = true;
+                    }
+                    
+                    // Mettre à jour l'interface en fonction du type sélectionné
+                    toggleEditFrequencySection();
+                })
+                .catch(error => {
+                    console.error('Erreur:', error);
+                    alert('Erreur lors de la récupération des détails de la planification');
+                });
+        }
+    });
+    
+    // Gestion des boutons pour ajouter une planification depuis la liste des scripts
+    const addScheduleBtns = document.querySelectorAll('.add-schedule');
+    
+    addScheduleBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const scriptId = this.getAttribute('data-script-id');
+            const scriptPath = this.getAttribute('data-script-path');
+            
+            // Changer d'onglet pour aller à la planification
+            const schedulerTabBtn = document.querySelector('.tab-btn[data-tab="scheduler"]');
+            schedulerTabBtn.click();
+            
+            // Remplir le formulaire de planification avec le script sélectionné
+            document.getElementById('scriptPath').value = scriptPath;
+            
+            // Faire défiler la page jusqu'au formulaire
+            document.getElementById('scheduleForm').scrollIntoView({ behavior: 'smooth' });
+        });
+    });
+    
+    // Gestion des boutons pour exécuter une planification
+    const runScheduleBtns = document.querySelectorAll('.run-schedule');
+    
+    runScheduleBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const scheduleId = this.getAttribute('data-schedule-id');
+            
+            // Changer immédiatement la couleur de la carte en orange
+            const scheduleCard = this.closest('.bg-white').querySelector('div:first-child');
+            if (scheduleCard) {
+                // Sauvegarder la classe actuelle pour pouvoir la restaurer en cas d'erreur
+                scheduleCard.dataset.originalClass = scheduleCard.className;
+                
+                // Remplacer la classe de couleur par orange
+                scheduleCard.className = scheduleCard.className.replace(/bg-\w+-\d+/, 'bg-orange-100');
+            }
+            
+            // Mettre à jour le badge de statut
+            const statusBadge = scheduleCard.querySelector(`.status-badge[data-schedule-id="${scheduleId}"]`);
+            if (statusBadge) {
+                // Sauvegarder le contenu original du badge
+                statusBadge.dataset.originalHtml = statusBadge.outerHTML;
+                
+                // Remplacer le badge par un badge "En cours"
+                statusBadge.className = "px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800 status-badge";
+                statusBadge.textContent = "En cours";
+            }
+            
+            // Afficher le modal avec un message de chargement
+            scriptOutputContainer.innerHTML = 'Exécution du script en cours...';
+            scriptOutputModal.classList.remove('hidden');
+            
+            // Exécuter le script via une requête AJAX
+            fetch(`/schedules/${scheduleId}/run`, {
+                method: 'POST'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        scriptOutputContainer.innerHTML = `<div class="text-green-500">Exécution réussie:</div><div class="mt-2">${data.output || 'Aucune sortie'}</div>`;
+                        
+                        // Quand l'exécution est terminée, changer la couleur en vert
+                        if (scheduleCard) {
+                            scheduleCard.className = scheduleCard.className.replace(/bg-\w+-\d+/, 'bg-green-100');
+                        }
+                        
+                        // Mettre à jour le badge en "Succès"
+                        if (statusBadge) {
+                            statusBadge.className = "px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800 status-badge";
+                            statusBadge.textContent = "Succès";
+                        }
+                        
+                    } else if (data.status === 'timeout') {
+                        scriptOutputContainer.innerHTML = `<div class="text-yellow-500">Timeout:</div><div class="mt-2">${data.output || 'L\'exécution du script a dépassé le délai imparti.'}</div>`;
+                        
+                        // En cas de timeout, changer la couleur en rouge
+                        if (scheduleCard) {
+                            scheduleCard.className = scheduleCard.className.replace(/bg-\w+-\d+/, 'bg-red-100');
+                        }
+                        
+                        // Mettre à jour le badge en "Échec"
+                        if (statusBadge) {
+                            statusBadge.className = "px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800 status-badge";
+                            statusBadge.textContent = "Échec";
+                        }
+                        
+                    } else {
+                        scriptOutputContainer.innerHTML = `<div class="text-red-500">Erreur:</div><div class="mt-2">${data.output || 'Une erreur est survenue lors de l\'exécution.'}</div>`;
+                        
+                        // En cas d'erreur, changer la couleur en rouge
+                        if (scheduleCard) {
+                            scheduleCard.className = scheduleCard.className.replace(/bg-\w+-\d+/, 'bg-red-100');
+                        }
+                        
+                        // Mettre à jour le badge en "Échec"
+                        if (statusBadge) {
+                            statusBadge.className = "px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800 status-badge";
+                            statusBadge.textContent = "Échec";
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Erreur:', error);
+                    scriptOutputContainer.innerHTML = `<div class="text-red-500">Erreur:</div><div class="mt-2">Une erreur est survenue lors de la communication avec le serveur.</div>`;
+                    
+                    // En cas d'erreur de communication, restaurer la couleur d'origine
+                    if (scheduleCard && scheduleCard.dataset.originalClass) {
+                        scheduleCard.className = scheduleCard.dataset.originalClass;
+                    }
+                    
+                    // Restaurer le badge d'origine
+                    if (statusBadge && statusBadge.dataset.originalHtml) {
+                        const parent = statusBadge.parentNode;
+                        parent.insertAdjacentHTML('beforeend', statusBadge.dataset.originalHtml);
+                        statusBadge.remove();
+                    }
+                });
+        });
+    });
+    
+    // Mise à jour de l'expression cron dans le modal d'édition
+    const editCronFields = document.querySelectorAll('#editCronFrequencyOptions .cron-field');
+    const editCronExpression = document.getElementById('editCronExpression');
+    
+    if (editCronFields.length > 0 && editCronExpression) {
+        editCronFields.forEach(field => {
+            field.addEventListener('input', updateEditCronExpression);
+        });
+        
+        function updateEditCronExpression() {
+            const minute = document.getElementById('editCronMinute').value || '*';
+            const hour = document.getElementById('editCronHour').value || '*';
+            const day = document.getElementById('editCronDay').value || '*';
+            const month = document.getElementById('editCronMonth').value || '*';
+            const weekday = document.getElementById('editCronWeekday').value || '*';
+            
+            editCronExpression.textContent = `${minute} ${hour} ${day} ${month} ${weekday}`;
+        }
+    }
+    
+    // Gestion des boutons pour visualiser la dernière exécution
+    const viewLastExecutionBtns = document.querySelectorAll('.view-last-execution');
+    
+    viewLastExecutionBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const scheduleId = this.getAttribute('data-schedule-id');
+            
+            // Faire une requête pour récupérer le dernier log d'exécution
+            fetch(`/logs?schedule_id=${scheduleId}&last=true`)
+                .then(response => response.json())
+                .then(logs => {
+                    if (logs.length > 0) {
+                        const lastLog = logs[0];
+                        logOutput.innerHTML = lastLog.output || 'Aucune sortie disponible.';
+                        logDetailsModal.classList.remove('hidden');
+                    } else {
+                        logOutput.innerHTML = 'Aucun journal d\'exécution trouvé pour cette planification.';
+                        logDetailsModal.classList.remove('hidden');
+                    }
+                })
+                .catch(error => {
+                    console.error('Erreur:', error);
+                    logOutput.innerHTML = 'Erreur lors de la récupération des journaux d\'exécution.';
+                    logDetailsModal.classList.remove('hidden');
+                });
+        });
+    });
+    
+    // Gestion des boutons d'édition de planification
     const editScheduleForm = document.getElementById('editScheduleForm');
     
     // Gestion des options dans le modal d'édition de planification
@@ -757,168 +1203,20 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Gestion des boutons pour éditer une planification
-    editScheduleBtns.forEach(btn => {
-        btn.addEventListener('click', function() {
-            const scheduleId = this.getAttribute('data-schedule-id');
-            
-            // Récupérer les détails de la planification
-            fetch(`/schedules/${scheduleId}`)
-                .then(response => response.json())
-                .then(data => {
-                    // Remplir le formulaire
-                    document.getElementById('editScheduleId').value = data.id;
-                    document.getElementById('editScheduleName').value = data.name;
-                    document.getElementById('editScriptPath').value = data.script_path;
-                    document.getElementById('editEnvPath').value = data.env_path || '';
-                    
-                    // Sélectionner le type de fréquence
-                    if (data.frequency_type === 'simple') {
-                        editSimpleFreqRadio.checked = true;
-                        editCronFreqRadio.checked = false;
-                        editSimpleFreqOptions.classList.remove('hidden');
-                        editCronFreqOptions.classList.add('hidden');
-                        
-                        // Analyser l'expression cron pour déterminer le type de fréquence simple
-                        const cronParts = data.schedule.split(' ');
-                        
-                        if (cronParts[1] === '*' && cronParts[2] === '*' && cronParts[3] === '*' && cronParts[4] === '*') {
-                            // Horaire (minute * * * *)
-                            editHourlyRadio.checked = true;
-                            document.getElementById('editHourlyMinute').value = cronParts[0];
-                        } else if (cronParts[2] === '*' && cronParts[3] === '*' && cronParts[4] === '*') {
-                            // Quotidien (minute heure * * *)
-                            editDailyRadio.checked = true;
-                            document.getElementById('editDailyMinute').value = cronParts[0];
-                            document.getElementById('editDailyHour').value = cronParts[1];
-                        } else if (cronParts[2] === '*' && cronParts[3] === '*' && cronParts[4] !== '*') {
-                            // Hebdomadaire (minute heure * * jour_semaine)
-                            editWeeklyRadio.checked = true;
-                            document.getElementById('editWeeklyMinute').value = cronParts[0];
-                            document.getElementById('editWeeklyHour').value = cronParts[1];
-                            document.getElementById('editWeeklyDay').value = cronParts[4];
-                        } else if (cronParts[2] !== '*' && cronParts[3] === '*' && cronParts[4] === '*') {
-                            // Mensuel (minute heure jour * *)
-                            editMonthlyRadio.checked = true;
-                            document.getElementById('editMonthlyMinute').value = cronParts[0];
-                            document.getElementById('editMonthlyHour').value = cronParts[1];
-                            document.getElementById('editMonthlyDay').value = cronParts[2];
-                        } else if (cronParts[0] !== '*' && cronParts[1] === '*' && cronParts[2] === '*' && cronParts[3] === '*' && cronParts[4] === '*') {
-                            // Toutes les X minutes (minute * * * *)
-                            editEveryMinutesRadio.checked = true;
-                            document.getElementById('editEveryMinutes').value = cronParts[0];
-                        }
-                        
-                        toggleEditSpecificOptions();
-                    } else {
-                        editSimpleFreqRadio.checked = false;
-                        editCronFreqRadio.checked = true;
-                        editSimpleFreqOptions.classList.add('hidden');
-                        editCronFreqOptions.classList.remove('hidden');
-                        
-                        // Remplir les champs cron
-                        const cronParts = data.schedule.split(' ');
-                        document.getElementById('editCronMinute').value = cronParts[0];
-                        document.getElementById('editCronHour').value = cronParts[1];
-                        document.getElementById('editCronDay').value = cronParts[2];
-                        document.getElementById('editCronMonth').value = cronParts[3];
-                        document.getElementById('editCronWeekday').value = cronParts[4];
-                        document.getElementById('editCronExpression').textContent = data.schedule;
-                    }
-                    
-                    // Afficher le modal
-                    scheduleEditorModal.classList.remove('hidden');
-                })
-                .catch(error => {
-                    console.error('Erreur:', error);
-                    alert('Erreur lors de la récupération des détails de la planification');
-                });
-        });
-    });
-    
     // Fermer le modal d'édition de planification
+    const closeScheduleEditor = document.getElementById('closeScheduleEditor');
+    const cancelScheduleEdit = document.getElementById('cancelScheduleEdit');
+    
     if (closeScheduleEditor) {
         closeScheduleEditor.addEventListener('click', function() {
-            scheduleEditorModal.classList.add('hidden');
+            document.getElementById('scheduleEditorModal').classList.add('hidden');
         });
     }
     
     if (cancelScheduleEdit) {
         cancelScheduleEdit.addEventListener('click', function() {
-            scheduleEditorModal.classList.add('hidden');
+            document.getElementById('scheduleEditorModal').classList.add('hidden');
         });
-    }
-    
-    // Gestion des boutons pour ajouter une planification depuis la liste des scripts
-    const addScheduleBtns = document.querySelectorAll('.add-schedule');
-    
-    addScheduleBtns.forEach(btn => {
-        btn.addEventListener('click', function() {
-            const scriptId = this.getAttribute('data-script-id');
-            const scriptPath = this.getAttribute('data-script-path');
-            
-            // Changer d'onglet pour aller à la planification
-            const schedulerTabBtn = document.querySelector('.tab-btn[data-tab="scheduler"]');
-            schedulerTabBtn.click();
-            
-            // Remplir le formulaire de planification avec le script sélectionné
-            document.getElementById('scriptPath').value = scriptPath;
-            
-            // Faire défiler la page jusqu'au formulaire
-            document.getElementById('scheduleForm').scrollIntoView({ behavior: 'smooth' });
-        });
-    });
-    
-    // Gestion des boutons pour exécuter une planification
-    const runScheduleBtns = document.querySelectorAll('.run-schedule');
-    
-    runScheduleBtns.forEach(btn => {
-        btn.addEventListener('click', function() {
-            const scheduleId = this.getAttribute('data-schedule-id');
-            
-            // Afficher le modal avec un message de chargement
-            scriptOutputContainer.innerHTML = 'Exécution du script planifié en cours...';
-            scriptOutputModal.classList.remove('hidden');
-            
-            // Exécuter le script via une requête AJAX
-            fetch(`/schedules/${scheduleId}/run`, {
-                method: 'POST'
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        scriptOutputContainer.innerHTML = `<div class="text-green-500">Exécution réussie:</div><div class="mt-2">${data.output || 'Aucune sortie'}</div>`;
-                    } else if (data.status === 'timeout') {
-                        scriptOutputContainer.innerHTML = `<div class="text-yellow-500">Timeout:</div><div class="mt-2">${data.output || 'L\'exécution du script a dépassé le délai imparti.'}</div>`;
-                    } else {
-                        scriptOutputContainer.innerHTML = `<div class="text-red-500">Erreur:</div><div class="mt-2">${data.output || 'Une erreur s\'est produite lors de l\'exécution du script.'}</div>`;
-                    }
-                })
-                .catch(error => {
-                    console.error('Erreur:', error);
-                    scriptOutputContainer.innerHTML = `<div class="text-red-500">Erreur:</div><div class="mt-2">Une erreur s'est produite lors de la communication avec le serveur.</div>`;
-                });
-        });
-    });
-    
-    // Mise à jour de l'expression cron dans le modal d'édition
-    const editCronFields = document.querySelectorAll('#editCronFrequencyOptions .cron-field');
-    const editCronExpression = document.getElementById('editCronExpression');
-    
-    if (editCronFields.length > 0 && editCronExpression) {
-        editCronFields.forEach(field => {
-            field.addEventListener('input', updateEditCronExpression);
-        });
-        
-        function updateEditCronExpression() {
-            const minute = document.getElementById('editCronMinute').value || '*';
-            const hour = document.getElementById('editCronHour').value || '*';
-            const day = document.getElementById('editCronDay').value || '*';
-            const month = document.getElementById('editCronMonth').value || '*';
-            const weekday = document.getElementById('editCronWeekday').value || '*';
-            
-            editCronExpression.textContent = `${minute} ${hour} ${day} ${month} ${weekday}`;
-        }
     }
     
     // Suppression automatique des messages flash après 5 secondes
@@ -928,6 +1226,129 @@ document.addEventListener('DOMContentLoaded', function() {
             message.remove();
         }, 8000);
     });
+    
+    // Gestion du type d'exécution (standard ou service)
+    const editStandardTypeRadio = document.getElementById('editStandardType');
+    const editServiceTypeRadio = document.getElementById('editServiceType');
+    // Sélectionner la section de fréquence par son conteneur
+    const frequencySections = document.querySelectorAll('.mb-4');
+    let frequencySection = null;
+    let timeoutSection = null;
+    
+    // Trouver la section de fréquence d'exécution
+    frequencySections.forEach(section => {
+        const label = section.querySelector('label');
+        if (label && label.textContent.includes('Fréquence d\'exécution')) {
+            frequencySection = section;
+        }
+        if (label && label.textContent.includes('Délai d\'exécution')) {
+            timeoutSection = section;
+        }
+    });
+    
+    function toggleEditFrequencySection() {
+        if (!editStandardTypeRadio || !editServiceTypeRadio) return;
+        
+        // Trouver également la section de timeout
+        const timeoutSections = document.querySelectorAll('.mb-4');
+        let timeoutSection = null;
+        let timeoutInput = document.getElementById('editTimeout');
+        
+        timeoutSections.forEach(section => {
+            const label = section.querySelector('label');
+            if (label && label.textContent.includes('Délai d\'exécution')) {
+                timeoutSection = section;
+            }
+        });
+        
+        // Afficher/masquer les options supplémentaires pour les services
+        const editServiceOptions = document.getElementById('editServiceOptions');
+        
+        if (editServiceTypeRadio.checked) {
+            // Afficher les options de service
+            if (editServiceOptions) {
+                editServiceOptions.classList.remove('hidden');
+            }
+            
+            // Masquer la section de fréquence
+            if (frequencySection) {
+                frequencySection.style.display = 'none';
+            }
+            
+            // Masquer la section de timeout et gérer l'attribut required
+            if (timeoutSection) {
+                timeoutSection.style.display = 'none';
+                if (timeoutInput) {
+                    // Stocker la valeur actuelle
+                    if (!timeoutInput.getAttribute('data-original-value') && timeoutInput.value) {
+                        timeoutInput.setAttribute('data-original-value', timeoutInput.value);
+                    }
+                    // Fournir une valeur par défaut et retirer l'attribut required
+                    timeoutInput.value = '30';
+                    timeoutInput.removeAttribute('required');
+                }
+            }
+            
+            // Si on choisit service, on sélectionne automatiquement une planification simple horaire
+            if (document.getElementById('editSimpleFrequencyType')) {
+                document.getElementById('editSimpleFrequencyType').checked = true;
+            }
+            if (document.getElementById('editHourly')) {
+                document.getElementById('editHourly').checked = true;
+            }
+            // Masquer les options avancées également
+            if (document.getElementById('editSimpleFrequencyOptions')) {
+                document.getElementById('editSimpleFrequencyOptions').style.display = 'none';
+            }
+            if (document.getElementById('editCronFrequencyOptions')) {
+                document.getElementById('editCronFrequencyOptions').style.display = 'none';
+            }
+        } else {
+            // Masquer les options de service
+            if (editServiceOptions) {
+                editServiceOptions.classList.add('hidden');
+            }
+            
+            // Afficher la section de fréquence
+            if (frequencySection) {
+                frequencySection.style.display = 'block';
+            }
+            
+            // Afficher la section de timeout et restaurer l'attribut required
+            if (timeoutSection) {
+                timeoutSection.style.display = 'block';
+                if (timeoutInput) {
+                    // Restaurer la valeur d'origine si elle existe
+                    if (timeoutInput.getAttribute('data-original-value')) {
+                        timeoutInput.value = timeoutInput.getAttribute('data-original-value');
+                        timeoutInput.removeAttribute('data-original-value');
+                    }
+                    // Réajouter l'attribut required
+                    timeoutInput.setAttribute('required', '');
+                }
+            }
+            
+            // Réafficher les options de fréquence appropriées
+            if (document.getElementById('editSimpleFrequencyType') && document.getElementById('editSimpleFrequencyType').checked) {
+                if (document.getElementById('editSimpleFrequencyOptions')) {
+                    document.getElementById('editSimpleFrequencyOptions').style.display = 'block';
+                }
+            } else if (document.getElementById('editCronFrequencyType') && document.getElementById('editCronFrequencyType').checked) {
+                if (document.getElementById('editCronFrequencyOptions')) {
+                    document.getElementById('editCronFrequencyOptions').style.display = 'block';
+                }
+            }
+        }
+    }
+    
+    // Pour le formulaire d'édition
+    if (editStandardTypeRadio && editServiceTypeRadio) {
+        editStandardTypeRadio.addEventListener('change', toggleEditFrequencySection);
+        editServiceTypeRadio.addEventListener('change', toggleEditFrequencySection);
+        
+        // Vérifier l'état initial
+        toggleEditFrequencySection();
+    }
     
     // Gestion des options "Toutes les X minutes"
     const frequencyTypeRadios = document.querySelectorAll('input[name="frequencyType"]');
@@ -1007,4 +1428,313 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+    
+    // Ajout de l'appel à attachViewLogButtonHandlers() dès le chargement de la page
+    attachViewLogButtonHandlers();
+});
+
+document.addEventListener('click', function(event) {
+    // Vérifier si l'élément cliqué ou un de ses parents est un bouton view-log-btn
+    let target = event.target;
+    while (target && target !== document) {
+        if (target.classList && target.classList.contains('view-log-btn')) {
+            // C'est un bouton view-log-btn
+            const logId = target.getAttribute('data-log-id');
+            console.log('Clic sur le log avec ID:', logId);
+            
+            // Récupérer tous les logs
+            fetch('/logs')
+                .then(response => response.json())
+                .then(logs => {
+                    // Conversion explicite des IDs en chaînes de caractères pour la comparaison
+                    const log = logs.find(l => String(l.id) === String(logId));
+                    
+                    if (log) {
+                        console.log('Log trouvé:', log);
+                        
+                        // Afficher les détails du log dans le modal
+                        const modal = document.getElementById('logDetailsModal');
+                        const scriptPath = document.getElementById('logScriptPath');
+                        const timestamp = document.getElementById('logTimestamp');
+                        const status = document.getElementById('logStatus');
+                        const output = document.getElementById('logOutput');
+                        
+                        if (modal && scriptPath && timestamp && status && output) {
+                            scriptPath.textContent = log.script_path;
+                            timestamp.textContent = new Date(log.timestamp).toLocaleString();
+                            
+                            status.textContent = log.status === 'success' ? 'Succès' : 'Erreur';
+                            status.className = log.status === 'success' ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold';
+                            
+                            output.textContent = log.output || 'Aucune sortie';
+                            
+                            // Afficher les erreurs s'il y en a
+                            const errorContainer = document.getElementById('logErrorContainer');
+                            if (errorContainer) {
+                                if (log.error) {
+                                    errorContainer.classList.remove('hidden');
+                                    document.getElementById('logError').textContent = log.error;
+                                } else {
+                                    errorContainer.classList.add('hidden');
+                                }
+                            }
+                            
+                            modal.classList.remove('hidden');
+                        }
+                    } else {
+                        console.error('Log non trouvé avec ID:', logId);
+                        alert('Log non trouvé.');
+                    }
+                })
+                .catch(error => {
+                    console.error('Erreur:', error);
+                    alert('Erreur lors de la récupération des logs.');
+                });
+            
+            event.preventDefault();
+            return false;
+        }
+        target = target.parentNode;
+    }
+});
+
+// Fonction pour mettre à jour les statuts des scripts en cours d'exécution
+function updateRunningScripts() {
+    // Récupérer les statuts des scripts en cours
+    fetch('/script_status')
+        .then(response => response.json())
+        .then(data => {
+            console.log("Mise à jour des statuts scripts:", data);
+            
+            // Récupérer tous les éléments à mettre à jour
+            const playButtons = document.querySelectorAll('.run-schedule');
+            const stopButtons = document.querySelectorAll('form[action^="/stop_script/"]');
+            const statusBadges = document.querySelectorAll('.status-badge');
+            const cardHeaders = document.querySelectorAll('.bg-white > div[class*="bg-"]');
+            
+            // Récupérer les derniers logs pour déterminer le statut des scripts qui ne sont plus en cours
+            fetch('/logs?last=true')
+                .then(response => response.json())
+                .then(logs => {
+                    console.log("Derniers logs:", logs);
+                    
+                    // Créer un dictionnaire des derniers logs par schedule_id
+                    const lastLogsByScheduleId = {};
+                    logs.forEach(log => {
+                        if (log.schedule_id) {
+                            lastLogsByScheduleId[log.schedule_id] = log;
+                        }
+                    });
+                    
+                    // Créer un ensemble des scripts en cours d'exécution
+                    const runningScriptIds = new Set();
+                    for (const scheduleId in data) {
+                        runningScriptIds.add(scheduleId);
+                        runningScriptIds.add(parseInt(scheduleId));
+                    }
+                    
+                    // Mettre à jour les boutons play/stop
+                    playButtons.forEach(button => {
+                        const scheduleId = button.getAttribute('data-schedule-id');
+                        const isRunning = runningScriptIds.has(scheduleId) || runningScriptIds.has(parseInt(scheduleId));
+                        
+                        // Trouver le formulaire d'arrêt correspondant
+                        let stopForm = null;
+                        stopButtons.forEach(form => {
+                            const formAction = form.getAttribute('action');
+                            if (formAction && formAction.includes(scheduleId)) {
+                                stopForm = form;
+                            }
+                        });
+                        
+                        // Trouver la carte parente et son en-tête
+                        const card = button.closest('.bg-white');
+                        let header = null;
+                        if (card) {
+                            header = card.querySelector('div[class*="bg-"]');
+                        }
+                        
+                        // Trouver le badge de statut correspondant
+                        let badge = null;
+                        statusBadges.forEach(b => {
+                            if (b.getAttribute('data-schedule-id') === scheduleId) {
+                                badge = b;
+                            }
+                        });
+                        
+                        if (isRunning) {
+                            // Script en cours d'exécution
+                            button.classList.add('hidden');
+                            if (stopForm) {
+                                stopForm.classList.remove('hidden');
+                            } else {
+                                // Créer un formulaire d'arrêt s'il n'existe pas
+                                const buttonsContainer = button.parentElement;
+                                if (buttonsContainer) {
+                                    const newStopForm = document.createElement('form');
+                                    newStopForm.setAttribute('action', `/stop_script/${scheduleId}`);
+                                    newStopForm.setAttribute('method', 'POST');
+                                    newStopForm.classList.add('inline');
+                                    
+                                    newStopForm.innerHTML = `
+                                        <button type="submit" class="text-red-600 hover:text-red-900 mr-1" title="Arrêter le script en cours">
+                                            <i class="fas fa-stop-circle"></i>
+                                        </button>
+                                    `;
+                                    
+                                    buttonsContainer.insertBefore(newStopForm, button);
+                                }
+                            }
+                            
+                            // Mettre à jour l'en-tête de la carte en orange
+                            if (header) {
+                                header.className = header.className.replace(/bg-\w+-100/g, 'bg-orange-100');
+                            }
+                            
+                            // Mettre à jour le badge
+                            if (badge) {
+                                badge.innerHTML = 'En cours <i class="fas fa-spinner fa-spin ml-1"></i>';
+                                badge.className = 'px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800 status-badge';
+                            }
+                        } else {
+                            // Script arrêté ou terminé
+                            button.classList.remove('hidden');
+                            if (stopForm) {
+                                stopForm.classList.add('hidden');
+                            }
+                            
+                            // Mettre à jour l'en-tête et le badge en fonction du dernier log
+                            const lastLog = lastLogsByScheduleId[scheduleId];
+                            if (lastLog) {
+                                // Mettre à jour en fonction du statut du dernier log
+                                if (lastLog.status === 'success') {
+                                    // Succès
+                                    if (header) {
+                                        header.className = header.className.replace(/bg-\w+-100/g, 'bg-green-100');
+                                    }
+                                    if (badge) {
+                                        badge.innerHTML = 'Succès';
+                                        badge.className = 'px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800 status-badge';
+                                    }
+                                } else if (lastLog.status === 'error' || lastLog.status === 'timeout') {
+                                    // Erreur ou timeout
+                                    if (header) {
+                                        header.className = header.className.replace(/bg-\w+-100/g, 'bg-red-100');
+                                    }
+                                    if (badge) {
+                                        badge.innerHTML = 'Erreur';
+                                        badge.className = 'px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800 status-badge';
+                                    }
+                                } else if (lastLog.status === 'stopped') {
+                                    // Arrêté manuellement
+                                    if (header) {
+                                        header.className = header.className.replace(/bg-\w+-100/g, 'bg-yellow-100');
+                                    }
+                                    if (badge) {
+                                        badge.innerHTML = 'Arrêté';
+                                        badge.className = 'px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800 status-badge';
+                                    }
+                                } else {
+                                    // Statut inconnu ou en attente
+                                    if (header) {
+                                        header.className = header.className.replace(/bg-\w+-100/g, 'bg-indigo-100');
+                                    }
+                                    if (badge) {
+                                        badge.innerHTML = 'En attente';
+                                        badge.className = 'px-2 py-1 text-xs font-medium rounded-full bg-indigo-100 text-indigo-800 status-badge';
+                                    }
+                                }
+                            }
+                        }
+                    });
+                })
+                .catch(error => console.error('Erreur lors de la récupération des logs:', error));
+        })
+        .catch(error => console.error('Erreur lors de la mise à jour des statuts:', error));
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Rafraîchir le statut des scripts toutes les 2 secondes
+    setInterval(updateRunningScripts, 2000);
+    // Mettre à jour immédiatement au chargement
+    updateRunningScripts();
+});
+
+// Fonction pour basculer l'affichage de la section de fréquence en fonction du type de planification sélectionné
+function toggleFrequencySection() {
+    const scheduleType = document.querySelector('input[name="scheduleType"]:checked');
+    if (!scheduleType) return;
+    
+    const frequencySection = document.querySelector('#scheduleForm div:nth-child(6)');
+    const serviceOptions = document.getElementById('serviceOptions');
+    const frequencyFields = document.querySelectorAll('.frequency-field');
+    const timeoutField = document.getElementById('timeout');
+    
+    if (scheduleType.value === 'service') {
+        // Pour les services, on cache la section de fréquence
+        if (frequencySection) frequencySection.classList.add('hidden');
+        if (serviceOptions) serviceOptions.classList.remove('hidden');
+        
+        // On rend les champs de fréquence et le timeout non requis
+        frequencyFields.forEach(field => {
+            field.removeAttribute('required');
+        });
+        
+        // Le délai d'exécution n'est pas requis pour les services
+        if (timeoutField) {
+            timeoutField.removeAttribute('required');
+            // Valeur par défaut pour services (très longue durée)
+            timeoutField.value = '3600';
+        }
+    } else {
+        // Pour les planifications standard, on affiche la section de fréquence
+        if (frequencySection) frequencySection.classList.remove('hidden');
+        if (serviceOptions) serviceOptions.classList.add('hidden');
+        
+        // On rend les champs de fréquence et le timeout requis
+        frequencyFields.forEach(field => {
+            field.setAttribute('required', 'required');
+        });
+        
+        // Le délai d'exécution est requis pour les planifications standard
+        if (timeoutField) {
+            timeoutField.setAttribute('required', 'required');
+            // Valeur par défaut pour scripts standards
+            timeoutField.value = '30';
+        }
+    }
+}
+
+// Ajouter un écouteur d'événement pour les changements de type de planification
+document.addEventListener('DOMContentLoaded', function() {
+    const scheduleTypeRadios = document.querySelectorAll('input[name="scheduleType"]');
+    scheduleTypeRadios.forEach(radio => {
+        radio.addEventListener('change', toggleFrequencySection);
+    });
+    
+    // Appeler la fonction au chargement de la page
+    toggleFrequencySection();
+    
+    // Validation du formulaire
+    const scheduleForm = document.getElementById('scheduleForm');
+    if (scheduleForm) {
+        scheduleForm.addEventListener('submit', function(event) {
+            const scheduleType = document.querySelector('input[name="scheduleType"]:checked');
+            
+            // Si c'est un service, on ne valide pas les règles de fréquence
+            if (scheduleType && scheduleType.value === 'service') {
+                return true;
+            }
+            
+            // Pour les planifications standard, vérifier que les champs de fréquence sont remplis
+            const frequencyType = document.querySelector('input[name="frequencyType"]:checked');
+            if (!frequencyType) {
+                alert('Veuillez sélectionner un type de fréquence');
+                event.preventDefault();
+                return false;
+            }
+            
+            return true;
+        });
+    }
 });
