@@ -647,6 +647,21 @@ window.setupCardEventListeners = function() {
         });
     }
     
+    // Gestion des boutons pour voir les logs dans le tableau des journaux
+    const viewLogButtons = document.querySelectorAll('.view-log-btn');
+    console.log(`Trouvé ${viewLogButtons.length} boutons de visualisation de logs (tableau logs)`);
+    viewLogButtons.forEach(button => {
+        // Supprimer tous les écouteurs d'événements existants
+        const newButton = button.cloneNode(true);
+        button.parentNode.replaceChild(newButton, button);
+        // Ajouter le nouvel écouteur d'événements
+        newButton.addEventListener('click', function() {
+            const logId = this.getAttribute('data-log-id');
+            console.log("Clic sur visualisation log (tableau) pour logId:", logId);
+            window.viewLastLogs(logId);
+        });
+    });
+    
     // === Gestion dynamique du chargement des fichiers dans la modale (parent_path amélioré) ===
     if (typeof window.lastParentPath === 'undefined') {
         window.lastParentPath = '';
