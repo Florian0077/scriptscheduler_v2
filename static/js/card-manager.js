@@ -301,6 +301,7 @@ window.viewLogById = function(logId) {
                 const log = logs[0];
                 document.getElementById('logScriptPath').textContent = log.script_path || '';
                 document.getElementById('logTimestamp').textContent = log.timestamp || '';
+                document.getElementById('logIdDebug').textContent = log.id || '';
                 const statusElem = document.getElementById('logStatus');
                 if (log.status === 'success') {
                     statusElem.textContent = 'Succès';

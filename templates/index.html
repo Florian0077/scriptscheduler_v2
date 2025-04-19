@@ -571,9 +571,16 @@
                     <div class="bg-white p-6 rounded-lg border border-gray-200">
                         <h2 class="text-xl font-semibold mb-4 text-gray-800">
                             <i class="fas fa-file-alt mr-2 text-indigo-500"></i>Journaux d'exécution
-                            <span class="text-xs text-gray-500 ml-2">(Actualisation auto: 5s)</span>
+                            <!-- <span class="text-xs text-gray-500 ml-2">(Actualisation auto: 5s)</span> -->
                         </h2>
-                        
+                        <div class="flex justify-end mt-4 mb-3">
+                            <form action="{{ url_for('clear_logs') }}" method="POST" onsubmit="return confirm('Êtes-vous sûr de vouloir effacer tous les journaux?')">
+                                <button type="submit" class="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500">
+                                    <i class="fas fa-trash mr-1"></i>Effacer les journaux
+                                </button>
+                            </form>
+                        </div>
+                    
                         <!-- Conteneur pour les journaux d'exécution, actualisé automatiquement -->
                         <div id="logsContainer">
                             {% if logs %}
@@ -582,27 +589,29 @@
                                         <thead class="bg-gray-50">
                                             <tr>
                                                 <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Script</th>
-                                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
-                                                <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+<th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID (debug)</th>
+<th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody class="bg-white divide-y divide-gray-200">
                                             {% for log in logs %}
                                                 <tr>
-                                                    <td class="px-3 py-4 whitespace-nowrap text-sm text-gray-500">{{ log.script_path }}</td>
-                                                    <td class="px-3 py-4 whitespace-nowrap text-sm text-gray-500">{{ log.timestamp|format_timestamp }}</td>
-                                                    <td class="px-3 py-4 whitespace-nowrap">
-                                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {{ 'bg-green-100 text-green-800' if log.status == 'success' else 'bg-red-100 text-red-800' }}">
-                                                            {{ 'Succès' if log.status == 'success' else 'Erreur' }}
-                                                        </span>
-                                                    </td>
-                                                    <td class="px-3 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                        <button class="view-log-btn text-indigo-600 hover:text-indigo-900" data-log-id="{{ log.id }}">
-                                                            <i class="fas fa-eye"></i>
-                                                        </button>
-                                                    </td>
-                                                </tr>
+    <td class="px-3 py-4 whitespace-nowrap text-sm text-gray-500">{{ log.script_path }}</td>
+    <td class="px-3 py-4 whitespace-nowrap text-sm text-gray-500">{{ log.timestamp|format_timestamp }}</td>
+    <td class="px-3 py-4 whitespace-nowrap">
+        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {{ 'bg-green-100 text-green-800' if log.status == 'success' else 'bg-red-100 text-red-800' }}">
+            {{ 'Succès' if log.status == 'success' else 'Erreur' }}
+        </span>
+    </td>
+    <td class="px-3 py-4 whitespace-nowrap text-sm text-gray-500">{{ log.id }}</td>
+    <td class="px-3 py-4 whitespace-nowrap text-right text-sm font-medium">
+        <button class="view-log-btn text-indigo-600 hover:text-indigo-900" data-log-id="{{ log.id }}">
+            <i class="fas fa-eye"></i>
+        </button>
+    </td>
+</tr>
                                             {% endfor %}
                                         </tbody>
                                     </table>
@@ -614,14 +623,6 @@
                                     <p class="text-sm">Les journaux apparaîtront ici après l'exécution d'un script</p>
                                 </div>
                             {% endif %}
-                        </div>
-                        
-                        <div class="flex justify-end mt-4">
-                            <form action="{{ url_for('clear_logs') }}" method="POST" onsubmit="return confirm('Êtes-vous sûr de vouloir effacer tous les journaux?')">
-                                <button type="submit" class="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500">
-                                    <i class="fas fa-trash mr-1"></i>Effacer les journaux
-                                </button>
-                            </form>
                         </div>
                     </div>
                 </div>
@@ -650,9 +651,13 @@
                         <span id="logScriptPath" class="text-gray-700"></span>
                     </div>
                     <div class="flex justify-between items-center mb-2">
-                        <h4 class="font-semibold text-lg">Date:</h4>
-                        <span id="logTimestamp" class="text-gray-700"></span>
-                    </div>
+    <h4 class="font-semibold text-lg">Date:</h4>
+    <span id="logTimestamp" class="text-gray-700"></span>
+</div>
+<div class="flex justify-between items-center mb-2">
+    <h4 class="font-semibold text-lg">ID (debug):</h4>
+    <span id="logIdDebug" class="text-gray-700"></span>
+</div>
                     <div class="flex justify-between items-center mb-2">
                         <h4 class="font-semibold text-lg">Statut:</h4>
                         <span id="logStatus" class="font-semibold"></span>

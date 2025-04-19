@@ -151,7 +151,7 @@ def save_logs(logs):
 def add_log(schedule_id, schedule_name, script_path, status, output=None):
     logs = get_logs()
     log_entry = {
-        'id': len(logs) + 1,
+        'id': str(uuid.uuid4()),
         'schedule_id': schedule_id,
         'schedule_name': schedule_name,
         'script_path': script_path,
@@ -1211,8 +1211,18 @@ def get_logs_api():
     # Retourner uniquement le dernier log si demandé
     last_only = request.args.get('last') == 'true'
     if last_only and logs:
-        # Trier par ID en ordre décroissant (le plus récent en premier)
-        logs.sort(key=lambda x: int(x['id']) if x.get('id') else 0, reverse=True)
+        # Trier par timestamp en ordre décroissant (le plus récent en premier)
+        def parse_ts(log):
+            ts = log.get('timestamp')
+            if ts:
+                try:
+                    # Gestion du format ISO, même sans microsecondes
+                    from datetime import datetime
+                    return datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                except:
+                    return ts
+            return ''
+        logs.sort(key=parse_ts, reverse=True)
         # Ne garder que le premier élément (le plus récent)
         logs = [logs[0]]
     
