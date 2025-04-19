@@ -7,78 +7,24 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    
+    <!-- Scripts JavaScript (avec defer pour s'assurer qu'ils s'exécutent après le chargement du DOM) -->
+    <script src="{{ url_for('static', filename='js/badge-manager.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/interface-manager.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/frequency-manager.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/navigation-manager.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/card-manager.js') }}" defer></script>
 </head>
 <body class="bg-gray-50 min-h-screen">
-    <!-- Header principal avec logo -->
-    <header class="w-full bg-indigo-700 shadow-md">
-        <div class="container mx-auto px-4 py-3">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center">
-                    <img src="{{ url_for('static', filename='image/logo.jpeg') }}" alt="Logo" class="h-16 w-auto mr-4 rounded-lg shadow-sm border-2 border-white">
-                    <div>
-                        <h1 class="text-3xl font-bold text-white tracking-tight">
-                            <i class="fas fa-code mr-2"></i> Scripts
-                        </h1>
-                        <p class="text-indigo-200 text-sm">Gérez vos services & planifiez vos scripts python</p>
-                    </div>
-                </div>
-                <div class="flex space-x-4">
-                    <a href="{{ url_for('settings') }}" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition flex items-center">
-                        <i class="fas fa-cog mr-2"></i>
-                        <span>Paramètres</span>
-                    </a>
-                </div>
-            </div>
-        </div>
-    </header>
-
-    <!-- Flash messages -->
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            <div class="fixed top-4 right-4 z-50">
-                {% for category, message in messages %}
-                    <div class="flash-message bg-{{ 'green' if category == 'success' else 'red' }}-100 border-l-4 border-{{ 'green' if category == 'success' else 'red' }}-500 text-{{ 'green' if category == 'success' else 'red' }}-700 p-4 mb-2 rounded shadow-md">
-                        <div class="flex">
-                            <div class="py-1">
-                                <i class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-circle' }} mr-2"></i>
-                            </div>
-                            <div>
-                                <p>{{ message }}</p>
-                            </div>
-                            <button class="ml-auto" onclick="this.parentElement.parentElement.remove()">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                    </div>
-                {% endfor %}
-            </div>
-        {% endif %}
-    {% endwith %}
+    {% include 'header.html' %}
 
     <div class="container mx-auto px-4 py-8">
         <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-            <!-- Header -->
-            <div class="bg-indigo-600 px-6 py-4 hidden">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center">
-                        <img src="{{ url_for('static', filename='image/logo.jpeg') }}" alt="Logo" class="h-12 w-auto mr-3 rounded">
-                        <h1 class="text-2xl font-bold text-white">
-                            <i class="fas fa-code mr-2"></i> Scripts
-                        </h1>
-                    </div>
-                    <div class="flex space-x-2">
-                        <a href="{{ url_for('settings') }}" class="text-white hover:text-indigo-200">
-                            <i class="fas fa-cog"></i>
-                        </a>
-                    </div>
-                </div>
-            </div>
-
             <!-- Main Content -->
             <div class="p-6">
                 <!-- Tabs -->
                 <div class="flex border-b border-gray-200 mb-6">
-                    <button class="tab-btn py-2 px-4 font-medium text-indigo-600 border-b-2 border-indigo-600" data-tab="scripts">
+                    <button class="tab-btn active py-2 px-4 font-medium text-indigo-600 border-b-2 border-indigo-600" data-tab="scripts">
                         <i class="fas fa-file-code mr-2"></i>Scripts
                     </button>
                     <button class="tab-btn py-2 px-4 font-medium text-gray-500 hover:text-indigo-500" data-tab="scheduler">
@@ -111,30 +57,27 @@
                             {% if schedules|length > 0 %}
                                 {% for schedule in schedules %}
                                     {% if schedule.get('schedule_type', 'standard') == 'standard' %}
-                                    <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow duration-300">
-                                        <div class="bg-{{ schedule.status_color }}-100 px-4 py-3 border-b border-gray-200">
+                                    <div class="bg-{{ schedule.status_color }}-100 rounded-lg border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow duration-300">
+                                        <div class="px-4 py-3 border-b border-gray-200">
                                             <div class="flex justify-between items-center">
                                                 <h4 class="text-md font-medium text-indigo-700 truncate">
                                                     <i class="fas fa-file-code mr-2"></i>{{ schedule.name }}
                                                 </h4>
                                                 <div class="flex items-center">
-                                                    <span class="px-2 py-1 text-xs font-medium rounded-full {{ 'bg-green-100 text-green-800' if schedule.enabled else 'bg-gray-100 text-gray-800' }} mr-2">
-                                                        {{ 'Actif' if schedule.enabled else 'Inactif' }}
-                                                    </span>
                                                     {% if schedule.id in running_scripts %}
                                                         <span class="px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800 status-badge" data-schedule-id="{{ schedule.id }}">
                                                             En cours <i class="fas fa-spinner fa-spin ml-1"></i>
                                                         </span>
                                                     {% elif schedule.status_color == 'green' %}
                                                         <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800 status-badge" data-schedule-id="{{ schedule.id }}">
-                                                            Succès
+                                                            Succès <i class="fas fa-check-circle"></i>
                                                         </span>
                                                     {% elif schedule.status_color == 'red' %}
                                                         <span class="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800 status-badge" data-schedule-id="{{ schedule.id }}">
-                                                            Erreur
+                                                            Erreur <i class="fas fa-exclamation-circle"></i>
                                                         </span>
                                                     {% else %}
-                                                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-indigo-100 text-indigo-800 status-badge" data-schedule-id="{{ schedule.id }}">
+                                                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800 status-badge" data-schedule-id="{{ schedule.id }}">
                                                             En attente
                                                         </span>
                                                     {% endif %}
@@ -156,11 +99,11 @@
                                                         </div>
                                                         <div>
                                                             <form action="{{ url_for('toggle_schedule', schedule_id=schedule.id) }}" method="POST" class="inline">
-                                                                <button type="submit" class="text-indigo-600 hover:text-indigo-900 mr-1">
+                                                                <button type="submit" class="text-indigo-600 hover:text-indigo-900 mr-1" title="URL: {{ url_for('toggle_schedule', schedule_id=schedule.id) }}">
                                                                     <i class="fas {{ 'fa-pause' if schedule.enabled else 'fa-play' }}"></i>
                                                                 </button>
                                                             </form>
-                                                            <button type="button" class="text-indigo-600 hover:text-indigo-900 edit-schedule mr-1" data-schedule-id="{{ schedule.id }}" onclick="editScheduleDirectly('{{ schedule.id }}')">
+                                                            <button type="button" class="text-indigo-600 hover:text-indigo-900 edit-schedule mr-1" data-schedule-id="{{ schedule.id }}">
                                                                 <i class="fas fa-edit"></i>
                                                             </button>
                                                             {% if schedule.id in running_scripts %}
@@ -170,7 +113,7 @@
                                                                     </button>
                                                                 </form>
                                                             {% else %}
-                                                                <button type="button" class="text-green-600 hover:text-green-900 mr-1 run-schedule" data-schedule-id="{{ schedule.id }}">
+                                                                <button type="button" class="text-green-600 hover:text-green-900 mr-1 run-schedule" data-schedule-id="{{ schedule.id }}" data-schedule-type="{{ schedule.get('schedule_type', 'standard') }}">
                                                                     <i class="fas fa-play-circle"></i>
                                                                 </button>
                                                             {% endif %}
@@ -213,31 +156,28 @@
                                 {% for schedule in schedules %}
                                     {% if schedule.get('schedule_type') == 'service' %}
                                     {% set service_count.value = service_count.value + 1 %}
-                                    <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow duration-300">
-                                        <div class="bg-{{ schedule.status_color }}-100 px-4 py-3 border-b border-gray-200">
+                                    <div class="bg-{{ schedule.status_color }}-100 rounded-lg border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow duration-300">
+                                        <div class="px-4 py-3 border-b border-gray-200">
                                             <div class="flex justify-between items-center">
                                                 <h4 class="text-md font-medium text-indigo-700 truncate">
                                                     <i class="fas fa-server mr-2"></i>{{ schedule.name }}
                                                 </h4>
                                                 <div class="flex items-center">
-                                                    <span class="px-2 py-1 text-xs font-medium rounded-full {{ 'bg-green-100 text-green-800' if schedule.enabled else 'bg-gray-100 text-gray-800' }} mr-2">
-                                                        {{ 'Actif' if schedule.enabled else 'Inactif' }}
-                                                    </span>
                                                     {% if schedule.id in running_scripts %}
-                                                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800 status-badge" data-schedule-id="{{ schedule.id }}">
-                                                            En cours <i class="fas fa-spinner fa-spin ml-1"></i>
+                                                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800 status-badge" data-schedule-id="{{ schedule.id }}" data-is-service="true">
+                                                            Démarré <i class="fas fa-cog fa-spin"></i>
                                                         </span>
                                                     {% elif schedule.status_color == 'green' %}
-                                                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800 status-badge" data-schedule-id="{{ schedule.id }}">
-                                                            Actif
+                                                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800 status-badge" data-schedule-id="{{ schedule.id }}" data-is-service="true">
+                                                            Succès <i class="fas fa-check-circle"></i>
                                                         </span>
                                                     {% elif schedule.status_color == 'red' %}
-                                                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800 status-badge" data-schedule-id="{{ schedule.id }}">
-                                                            Erreur
+                                                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800 status-badge" data-schedule-id="{{ schedule.id }}" data-is-service="true">
+                                                            Erreur <i class="fas fa-exclamation-circle"></i>
                                                         </span>
                                                     {% else %}
-                                                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-indigo-100 text-indigo-800 status-badge" data-schedule-id="{{ schedule.id }}">
-                                                            Non démarré
+                                                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800 status-badge" data-schedule-id="{{ schedule.id }}" data-is-service="true">
+                                                            En attente
                                                         </span>
                                                     {% endif %}
                                                 </div>
@@ -264,11 +204,11 @@
                                                         </div>
                                                         <div>
                                                             <form action="{{ url_for('toggle_schedule', schedule_id=schedule.id) }}" method="POST" class="inline">
-                                                                <button type="submit" class="text-indigo-600 hover:text-indigo-900 mr-1">
+                                                                <button type="submit" class="text-indigo-600 hover:text-indigo-900 mr-1" title="URL: {{ url_for('toggle_schedule', schedule_id=schedule.id) }}">
                                                                     <i class="fas {{ 'fa-pause' if schedule.enabled else 'fa-play' }}"></i>
                                                                 </button>
                                                             </form>
-                                                            <button type="button" class="text-indigo-600 hover:text-indigo-900 edit-schedule mr-1" data-schedule-id="{{ schedule.id }}" onclick="editScheduleDirectly('{{ schedule.id }}')">
+                                                            <button type="button" class="text-indigo-600 hover:text-indigo-900 edit-schedule mr-1" data-schedule-id="{{ schedule.id }}">
                                                                 <i class="fas fa-edit"></i>
                                                             </button>
                                                             {% if schedule.id in running_scripts %}
@@ -278,7 +218,7 @@
                                                                     </button>
                                                                 </form>
                                                             {% else %}
-                                                                <button type="button" class="text-green-600 hover:text-green-900 mr-1 run-schedule" data-schedule-id="{{ schedule.id }}">
+                                                                <button type="button" class="text-green-600 hover:text-green-900 mr-1 run-schedule" data-schedule-id="{{ schedule.id }}" data-schedule-type="{{ schedule.get('schedule_type', 'standard') }}">
                                                                     <i class="fas fa-play-circle"></i>
                                                                 </button>
                                                             {% endif %}
@@ -418,7 +358,7 @@
                                         </div>
                                         
                                         <div class="flex items-center mb-2">
-                                            <input type="radio" id="hourly" name="simpleFrequency" value="hourly" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500" checked>
+                                            <input type="radio" id="hourly" name="simpleFrequency" value="hourly" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
                                             <label for="hourly" class="ml-2 block text-sm text-gray-700">Horaire</label>
                                             <div id="hourlyOptions" class="ml-6">
                                                 <label class="text-sm text-gray-600">À la minute</label>
@@ -449,7 +389,7 @@
                                             </div>
                                         </div>
                                         
-                                        <div class="flex items-center mb-2">
+                                        <div class="flex items-center">
                                             <input type="radio" id="weekly" name="simpleFrequency" value="weekly" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
                                             <label for="weekly" class="ml-2 block text-sm text-gray-700">Hebdomadaire</label>
                                             <div id="weeklyOptions" class="ml-6 hidden">
@@ -535,8 +475,9 @@
                                 </div>
 
                                 <div class="flex justify-end">
-                                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                        <i class="fas fa-save mr-2"></i>Enregistrer
+                                    <button id="submitScriptButton" type="submit" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-300">
+                                        <span class="submit-text">Enregistrer</span>
+                                        <span class="spinner hidden"><i class="fas fa-spinner fa-spin"></i></span>
                                     </button>
                                 </div>
                             </form>
@@ -599,7 +540,7 @@
                                                     </td>
                                                     <td class="px-3 py-4 whitespace-nowrap text-right text-sm font-medium">
                                                         <form action="{{ url_for('toggle_schedule', schedule_id=schedule.id) }}" method="POST" class="inline">
-                                                            <button type="submit" class="text-indigo-600 hover:text-indigo-900 mr-2">
+                                                            <button type="submit" class="text-indigo-600 hover:text-indigo-900 mr-2" title="URL: {{ url_for('toggle_schedule', schedule_id=schedule.id) }}">
                                                                 <i class="fas {{ 'fa-pause' if schedule.enabled else 'fa-play' }}"></i>
                                                             </button>
                                                         </form>
@@ -689,28 +630,7 @@
         </div>
     </div>
 
-    <!-- Footer -->
-    <footer class="bg-gray-800 text-white mt-10">
-        <div class="container mx-auto px-6 py-4">
-            <div class="flex flex-col md:flex-row justify-between items-center">
-                <div class="mb-4 md:mb-0">
-                    <h2 class="text-xl font-bold">Scripts</h2>
-                    <p class="text-gray-400 text-sm">Une application pour planifier l'exécution automatique de scripts et services Python</p>
-                </div>
-                <div class="flex flex-col md:flex-row md:items-center">
-                    <a href="https://github.com/Florian0077/scriptscheduler_v2" target="_blank" class="text-gray-400 hover:text-white mr-4 mb-2 md:mb-0">
-                        <i class="fab fa-github mr-1"></i>GitHub
-                    </a>
-                    <a href="/settings" class="text-gray-400 hover:text-white mr-4 mb-2 md:mb-0">
-                        <i class="fas fa-cog mr-1"></i>Paramètres
-                    </a>
-                    <span class="text-gray-500 text-sm">
-                        <i class="far fa-copyright mr-1"></i>2025 Script Scheduler
-                    </span>
-                </div>
-            </div>
-        </div>
-    </footer>
+    {% include 'footer.html' %}
 
     <!-- Log Details Modal -->
     <div id="logDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
@@ -741,12 +661,12 @@
 
                 <div class="mb-4">
                     <h4 class="font-semibold text-lg mb-2">Sortie:</h4>
-                    <pre id="logOutput" class="bg-gray-100 p-4 rounded max-h-60 overflow-y-auto whitespace-pre-wrap break-words text-sm"></pre>
+                    <pre id="logOutput" class="bg-gray-100 p-4 rounded max-h-60 overflow-auto whitespace-pre-wrap break-words text-sm"></pre>
                 </div>
 
                 <div id="logErrorContainer" class="mb-4 hidden">
                     <h4 class="font-semibold text-lg mb-2 text-red-600">Erreur:</h4>
-                    <pre id="logError" class="bg-red-50 p-4 rounded max-h-60 overflow-y-auto whitespace-pre-wrap break-words text-sm text-red-600"></pre>
+                    <pre id="logError" class="bg-red-50 p-4 rounded max-h-60 overflow-auto whitespace-pre-wrap break-words text-sm text-red-600"></pre>
                 </div>
 
                 <div class="flex justify-end mt-4">
@@ -1003,6 +923,7 @@
                         <label class="block text-gray-700 font-medium mb-2">
                             Fréquence d'exécution
                         </label>
+
                         <div class="flex mb-4">
                             <div class="mr-4">
                                 <input type="radio" id="editSimpleFrequencyType" name="frequencyType" value="simple" class="mr-2" checked>
@@ -1031,7 +952,7 @@
                             </div>
                             
                             <div class="flex items-center mb-2">
-                                <input type="radio" id="editHourly" name="simpleFrequency" value="hourly" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500" checked>
+                                <input type="radio" id="editHourly" name="simpleFrequency" value="hourly" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
                                 <label for="editHourly" class="ml-2 block text-sm text-gray-700">Horaire</label>
                                 <div id="editHourlyOptions" class="ml-6">
                                     <label class="text-sm text-gray-600">À la minute</label>
@@ -1062,7 +983,7 @@
                                 </div>
                             </div>
                             
-                            <div class="flex items-center mb-2">
+                            <div class="flex items-center">
                                 <input type="radio" id="editWeekly" name="simpleFrequency" value="weekly" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
                                 <label for="editWeekly" class="ml-2 block text-sm text-gray-700">Hebdomadaire</label>
                                 <div id="editWeeklyOptions" class="ml-6 hidden">
@@ -1160,6 +1081,5 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>
 </html>

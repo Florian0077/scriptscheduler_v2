@@ -1,7 +1,7 @@
 from waitress import serve
 import app
 import socket
-
+import sys
 
 def get_ip_address():
     try:
@@ -15,7 +15,13 @@ def get_ip_address():
     except socket.error as e:
         print("Erreur lors de la récupération de l'adresse IP:", e)
         return None
-    
-    
-serve(app.app, host=get_ip_address(), port=2222, url_prefix='/scheduler_v2')
 
+if __name__ == '__main__':
+    # Pour le développement, utilisez Flask directement avec debug=True
+    if len(sys.argv) > 1 and sys.argv[1] == '--debug':
+        ip_address = get_ip_address()
+        print(f"Mode développement avec rechargement automatique activé sur {ip_address}:2222")
+        app.app.run(host=ip_address, port=2222, debug=True)
+    # Pour la production, utilisez Waitress
+    else:
+        serve(app.app, host=get_ip_address(), port=2222, url_prefix='/scheduler_v2')

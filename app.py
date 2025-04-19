@@ -12,6 +12,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from pytz import utc
 from datetime import timedelta
 import uuid
+import re
 
 app = Flask(__name__)
 app.secret_key = 'votre_clé_secrète_ici'  # À changer en production
@@ -329,6 +330,11 @@ def check_service_status(schedule_id):
             # Le service est déjà en cours d'exécution, tout est bon
             return
             
+        # Vérifier si le service est configuré en démarrage automatique
+        if not schedule.get('auto_start', False):
+            # Si le service est en démarrage manuel, ne pas le redémarrer automatiquement
+            return
+            
         # Trouver le dernier log pour ce service
         logs = get_logs()
         last_log = None
@@ -513,6 +519,11 @@ def safe_jsonify(*args, **kwargs):
 # Remplacer jsonify par notre version sécurisée
 jsonify = safe_jsonify
 
+# Ajouter un contexte global pour tous les templates
+@app.context_processor
+def inject_now():
+    return {'now': datetime.now()}
+
 @app.route('/')
 def index():
     schedules = get_schedules()
@@ -522,27 +533,65 @@ def index():
     # Nettoyer et assainir la liste des scripts en cours d'exécution
     sanitize_running_scripts()
     
-    # Ajouter les informations de statut à chaque planification
     for schedule in schedules:
-        # Déterminer la couleur du statut
-        if not schedule.get('enabled', True):
-            schedule['status_color'] = 'gray'
-        elif schedule['id'] in running_scripts:
-            schedule['status_color'] = 'green'
-        else:
-            # Chercher le dernier log pour cette planification
-            last_log = None
-            for log in logs:
-                if log.get('schedule_id') == schedule['id']:
-                    if not last_log or log['id'] > last_log['id']:
-                        last_log = log
-            
-            if last_log and last_log['status'] == 'success':
-                schedule['status_color'] = 'green'
-            elif last_log and last_log['status'] == 'error':
+        schedule_type = schedule.get('schedule_type')
+        is_running = schedule['id'] in running_scripts
+        enabled = schedule.get('enabled', True)
+        
+        # Chercher le dernier log pour cette planification
+        last_log = None
+        for log in logs:
+            if log['schedule_id'] == schedule['id'] and (not last_log or log['id'] > last_log['id']):
+                last_log = log
+        
+        # --- SERVICES ---
+        if schedule_type == 'service':
+            # Erreur service = dernier log error ou timeout
+            is_error = last_log and last_log['status'] in ['error', 'timeout']
+            if is_error:
                 schedule['status_color'] = 'red'
+                schedule['status_label'] = 'Erreur'
+                schedule['status_badge_color'] = 'bg-red-100 text-red-800'
+            elif is_running:
+                schedule['status_color'] = 'orange'
+                schedule['status_label'] = 'Démarré <i class="fa fa-cog fa-spin"></i>'
+                schedule['status_badge_color'] = 'bg-orange-100 text-orange-800'
             else:
-                schedule['status_color'] = 'indigo'
+                schedule['status_color'] = 'blue'
+                schedule['status_label'] = 'Stoppé'
+                schedule['status_badge_color'] = 'bg-blue-100 text-blue-800'
+        # --- SCRIPTS STANDARDS ---
+        else:
+            if not enabled:
+                schedule['status_color'] = 'gray'
+                schedule['status_label'] = 'Désactivé'
+                schedule['status_badge_color'] = 'bg-gray-100 text-gray-800'
+            elif is_running:
+                schedule['status_color'] = 'orange'
+                schedule['status_label'] = 'En cours'
+                schedule['status_badge_color'] = 'bg-orange-100 text-orange-800'
+            elif last_log:
+                log_status = last_log['status'].strip().lower()
+                if log_status == 'success':
+                    schedule['status_color'] = 'green'
+                    schedule['status_label'] = 'Succès'
+                    schedule['status_badge_color'] = 'bg-green-100 text-green-800'
+                elif log_status == 'timeout':
+                    schedule['status_color'] = 'red'
+                    schedule['status_label'] = 'Timeout'
+                    schedule['status_badge_color'] = 'bg-red-100 text-red-800'
+                elif log_status == 'error':
+                    schedule['status_color'] = 'red'
+                    schedule['status_label'] = 'Erreur'
+                    schedule['status_badge_color'] = 'bg-red-100 text-red-800'
+                else:
+                    schedule['status_color'] = 'blue'
+                    schedule['status_label'] = 'En attente'
+                    schedule['status_badge_color'] = 'bg-blue-100 text-blue-800'
+            else:
+                schedule['status_color'] = 'blue'
+                schedule['status_label'] = 'En attente'
+                schedule['status_badge_color'] = 'bg-blue-100 text-blue-800'
     
     return render_template(
         'index.html', 
@@ -637,7 +686,7 @@ def manage_schedules():
     
     return redirect(url_for('index'))
 
-@app.route('/schedules/<int:schedule_id>/toggle', methods=['POST'])
+@app.route('/toggle_schedule/<int:schedule_id>', methods=['POST'])
 def toggle_schedule(schedule_id):
     schedules = get_schedules()
     for schedule in schedules:
@@ -764,6 +813,7 @@ def run_schedule(schedule_id):
         try:
             # Exécuter le script avec le timeout personnalisé
             timeout = schedule_to_run.get('timeout', 30)
+            
             result = execute_script(
                 schedule_to_run['script_path'],
                 schedule_id,
@@ -791,11 +841,120 @@ def run_schedule(schedule_id):
 
 @app.route('/schedules/<int:schedule_id>', methods=['GET'])
 def get_schedule(schedule_id):
+    import re
     schedules = get_schedules()
     for schedule in schedules:
         if schedule['id'] == schedule_id:
+            # Nouvelle logique : utiliser simple_frequency et extraire depuis le cron si besoin
+            if 'frequency_type' in schedule and schedule['frequency_type'] == 'simple':
+                freq = schedule.get('simple_frequency')
+                cron = schedule.get('schedule', '')
+                if freq == 'everyMinutes':
+                    schedule['selected_frequency'] = 'everyMinutes'
+                    # Extraction robuste avec regex pour "/N" ou chaque minute
+                    try:
+                        match = re.match(r'^\*/(\d+) ', cron)
+                        if match:
+                            schedule['minutes_value'] = int(match.group(1))
+                        elif cron.startswith('* '):
+                            schedule['minutes_value'] = 1
+                        else:
+                            schedule['minutes_value'] = 5
+                    except Exception as e:
+                        print(f"Erreur extraction minutes: {e}")
+                        schedule['minutes_value'] = 5
+                    print(f"DEBUG minutes_value: {schedule.get('minutes_value')}, cron: {cron}")
+                elif freq == 'hourly':
+                    schedule['selected_frequency'] = 'hourly'
+                    try:
+                        # "M * * * *" => minute = M
+                        schedule['hourly_minute'] = int(cron.split(' ')[0])
+                    except:
+                        schedule['hourly_minute'] = 0
+                elif freq == 'daily':
+                    schedule['selected_frequency'] = 'daily'
+                    try:
+                        # "M H * * *" => minute = M, hour = H
+                        parts = cron.split(' ')
+                        schedule['daily_minute'] = int(parts[0])
+                        schedule['daily_hour'] = int(parts[1])
+                    except:
+                        schedule['daily_hour'] = 12
+                        schedule['daily_minute'] = 0
+                elif freq == 'weekly':
+                    schedule['selected_frequency'] = 'weekly'
+                    try:
+                        # "M H * * D" => minute = M, hour = H, day = D (0=dimanche)
+                        parts = cron.split(' ')
+                        schedule['weekly_minute'] = int(parts[0])
+                        schedule['weekly_hour'] = int(parts[1])
+                        schedule['weekly_day'] = int(parts[4])
+                    except:
+                        schedule['weekly_day'] = 1
+                        schedule['weekly_hour'] = 12
+                        schedule['weekly_minute'] = 0
+                elif freq == 'monthly':
+                    schedule['selected_frequency'] = 'monthly'
+                    try:
+                        # "M H D * *" => minute = M, hour = H, day = D
+                        parts = cron.split(' ')
+                        schedule['monthly_minute'] = int(parts[0])
+                        schedule['monthly_hour'] = int(parts[1])
+                        schedule['monthly_day'] = int(parts[2])
+                    except:
+                        schedule['monthly_day'] = 1
+                        schedule['monthly_hour'] = 12
+                        schedule['monthly_minute'] = 0
+                else:
+                    # fallback : ancienne logique sur la chaîne
+                    schedule_str = cron
+                    if 'every_minutes' in schedule_str:
+                        schedule['selected_frequency'] = 'everyMinutes'
+                        try:
+                            schedule['minutes_value'] = int(schedule_str.split(':')[1])
+                        except:
+                            schedule['minutes_value'] = 5
+                    elif 'hourly' in schedule_str:
+                        schedule['selected_frequency'] = 'hourly'
+                        try:
+                            schedule['hourly_minute'] = int(schedule_str.split(':')[1])
+                        except:
+                            schedule['hourly_minute'] = 0
+                    elif 'daily' in schedule_str:
+                        schedule['selected_frequency'] = 'daily'
+                        try:
+                            parts = schedule_str.split(':')
+                            schedule['daily_hour'] = int(parts[1])
+                            schedule['daily_minute'] = int(parts[2])
+                        except:
+                            schedule['daily_hour'] = 12
+                            schedule['daily_minute'] = 0
+                    elif 'weekly' in schedule_str:
+                        schedule['selected_frequency'] = 'weekly'
+                        try:
+                            parts = schedule_str.split(':')
+                            schedule['weekly_day'] = int(parts[1])
+                            schedule['weekly_hour'] = int(parts[2])
+                            schedule['weekly_minute'] = int(parts[3])
+                        except:
+                            schedule['weekly_day'] = 1
+                            schedule['weekly_hour'] = 12
+                            schedule['weekly_minute'] = 0
+                    elif 'monthly' in schedule_str:
+                        schedule['selected_frequency'] = 'monthly'
+                        try:
+                            parts = schedule_str.split(':')
+                            schedule['monthly_day'] = int(parts[1])
+                            schedule['monthly_hour'] = int(parts[2])
+                            schedule['monthly_minute'] = int(parts[3])
+                        except:
+                            schedule['monthly_day'] = 1
+                            schedule['monthly_hour'] = 12
+                            schedule['monthly_minute'] = 0
+                    else:
+                        schedule['selected_frequency'] = 'hourly'
+                        schedule['hourly_minute'] = 0
             return jsonify(schedule)
-    
     return jsonify({'error': 'Planification non trouvée'}), 404
 
 @app.route('/scripts', methods=['GET', 'POST'])

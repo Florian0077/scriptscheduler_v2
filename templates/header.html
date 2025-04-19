@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Python Script Scheduler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    
+    <!-- Scripts JavaScript (avec defer pour s'assurer qu'ils s'exécutent après le chargement du DOM) -->
+    <script src="{{ url_for('static', filename='js/badge-manager.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/interface-manager.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/frequency-manager.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/navigation-manager.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/card-manager.js') }}" defer></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header principal avec logo -->
+    <header class="w-full bg-indigo-700 shadow-md">
+        <div class="container mx-auto px-4 py-3">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <img src="{{ url_for('static', filename='image/logo.jpeg') }}" alt="Logo" class="h-16 w-auto mr-4 rounded-lg shadow-sm border-2 border-white">
+                    <div>
+                        <h1 class="text-3xl font-bold text-white tracking-tight">
+                            <i class="fas fa-code mr-2"></i> Scripts
+                        </h1>
+                        <p class="text-indigo-200 text-sm">Gérez vos services & planifiez vos scripts python</p>
+                    </div>
+                </div>
+                <div class="flex space-x-4">
+                    <a href="{{ url_for('settings') }}" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition flex items-center">
+                        <i class="fas fa-cog mr-2"></i>
+                        <span>Paramètres</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="fixed top-4 right-4 z-50">
+                {% for category, message in messages %}
+                    <div class="flash-message bg-{{ 'green' if category == 'success' else 'red' }}-100 border-l-4 border-{{ 'green' if category == 'success' else 'red' }}-500 text-{{ 'green' if category == 'success' else 'red' }}-700 p-4 mb-2 rounded shadow-md">
+                        <div class="flex">
+                            <div class="py-1">
+                                <i class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-circle' }} mr-2"></i>
+                            </div>
+                            <div>
+                                <p>{{ message }}</p>
+                            </div>
+                            <button class="ml-auto" onclick="this.parentElement.parentElement.remove()">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}

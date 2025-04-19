@@ -35,3 +35,8 @@
     from {opacity: 1;}
     to {opacity: 0; transform: translateY(-10px); display: none;}
 }
+
+#fileBrowserModal {
+    z-index: 9999 !important;
+    position: fixed !important;
+}
