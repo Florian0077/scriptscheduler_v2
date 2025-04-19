@@ -292,6 +292,44 @@ window.runSchedule = function(scheduleId, scheduleType) {
     });
 };
 
+// Nouvelle fonction pour afficher un log par son ID
+window.viewLogById = function(logId) {
+    fetch(`/logs?log_id=${logId}`)
+        .then(response => response.json())
+        .then(logs => {
+            if (logs && logs.length > 0) {
+                const log = logs[0];
+                document.getElementById('logScriptPath').textContent = log.script_path || '';
+                document.getElementById('logTimestamp').textContent = log.timestamp || '';
+                const statusElem = document.getElementById('logStatus');
+                if (log.status === 'success') {
+                    statusElem.textContent = 'Succès';
+                    statusElem.className = 'font-semibold text-green-600';
+                } else if (log.status === 'timeout') {
+                    statusElem.textContent = 'Timeout';
+                    statusElem.className = 'font-semibold text-yellow-600';
+                } else {
+                    statusElem.textContent = 'Erreur';
+                    statusElem.className = 'font-semibold text-red-600';
+                }
+                document.getElementById('logOutput').textContent = log.output || '';
+                // Affichage de l'erreur si présente
+                if (log.status === 'error' && log.output) {
+                    document.getElementById('logErrorContainer').classList.remove('hidden');
+                    document.getElementById('logError').textContent = log.output;
+                } else {
+                    document.getElementById('logErrorContainer').classList.add('hidden');
+                }
+                document.getElementById('logDetailsModal').classList.remove('hidden');
+            } else {
+                alert('Log introuvable.');
+            }
+        })
+        .catch(error => {
+            alert('Erreur lors de la récupération du log.');
+        });
+};
+
 // Fonction qui affiche les derniers logs
 window.viewLastLogs = function(scheduleId) {
     console.log(`Affichage du dernier log pour: ${scheduleId}`);
@@ -658,7 +696,7 @@ window.setupCardEventListeners = function() {
         newButton.addEventListener('click', function() {
             const logId = this.getAttribute('data-log-id');
             console.log("Clic sur visualisation log (tableau) pour logId:", logId);
-            window.viewLastLogs(logId);
+            window.viewLogById(logId);
         });
     });
     

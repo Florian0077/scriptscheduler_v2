@@ -1193,6 +1193,12 @@ def get_logs_api():
         if 'id' in log:
             log['id'] = str(log['id'])
     
+    # Filtrer par log_id si spécifié
+    log_id = request.args.get('log_id')
+    if log_id:
+        logs = [log for log in logs if str(log.get('id', '')) == str(log_id)]
+        return jsonify(logs)
+    
     # Filtrer par schedule_id si spécifié
     schedule_id = request.args.get('schedule_id')
     if schedule_id:
